@@ -1,0 +1,12 @@
+refresh:
+  name: Refresh meter readings
+  description: Manually refresh meter readings from Meterportal API
+  fields:
+    installation_id:
+      name: Installation ID
+      description: Optional. The installation ID to refresh. If not provided, all installations will be refreshed.
+      required: false
+      example: "abc123-def456"
+      selector:
+        text:
+

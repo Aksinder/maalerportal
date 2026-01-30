@@ -1,0 +1,220 @@
+{
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Mätaravläsning"
+      },
+      "meter_reading_water": {
+        "name": "Vattenmätaravläsning"
+      },
+      "meter_reading_electricity": {
+        "name": "Elmätaravläsning"
+      },
+      "meter_reading_heat": {
+        "name": "Värmemätaravläsning"
+      },
+      "consumption": {
+        "name": "Förbrukning"
+      },
+      "cold_water": {
+        "name": "Kallvatten"
+      },
+      "hot_water": {
+        "name": "Varmvatten"
+      },
+      "electricity_import": {
+        "name": "Elimport"
+      },
+      "electricity_export": {
+        "name": "Elexport"
+      },
+      "heat": {
+        "name": "Värme"
+      },
+      "cold_water_consumption": {
+        "name": "Kallvattenförbrukning"
+      },
+      "hot_water_consumption": {
+        "name": "Varmvattenförbrukning"
+      },
+      "electricity_import_consumption": {
+        "name": "Elimportförbrukning"
+      },
+      "electricity_export_consumption": {
+        "name": "Elexportförbrukning"
+      },
+      "heat_consumption": {
+        "name": "Värmeförbrukning"
+      },
+      "battery_days": {
+        "name": "Återstående batteridagar"
+      },
+      "max_ambient_temperature": {
+        "name": "Max omgivningstemperatur"
+      },
+      "min_ambient_temperature": {
+        "name": "Min omgivningstemperatur"
+      },
+      "max_water_temperature": {
+        "name": "Max vattentemperatur"
+      },
+      "min_water_temperature": {
+        "name": "Min vattentemperatur"
+      },
+      "max_flow": {
+        "name": "Max flöde"
+      },
+      "min_flow": {
+        "name": "Min flöde"
+      },
+      "acoustic_noise": {
+        "name": "Akustiskt brus"
+      },
+      "price_per_unit": {
+        "name": "Pris per enhet"
+      },
+      "supply_temperature": {
+        "name": "Framledningstemperatur"
+      },
+      "return_temperature": {
+        "name": "Returtemperatur"
+      },
+      "temperature_difference": {
+        "name": "Temperaturskillnad"
+      },
+      "heat_power": {
+        "name": "Värmeeffekt"
+      },
+      "heat_volume": {
+        "name": "Värmevolym"
+      },
+      "cold_water_statistic": {
+        "name": "Kallvatten (Energi-dashboard)"
+      },
+      "hot_water_statistic": {
+        "name": "Varmvatten (Energi-dashboard)"
+      },
+      "electricity_statistic": {
+        "name": "El (Energi-dashboard)"
+      },
+      "electricity_import_statistic": {
+        "name": "Elimport (Energi-dashboard)"
+      },
+      "electricity_export_statistic": {
+        "name": "Elexport (Energi-dashboard)"
+      },
+      "heat_statistic": {
+        "name": "Värme (Energi-dashboard)"
+      },
+      "energy_statistic": {
+        "name": "Energi (Energi-dashboard)"
+      },
+      "virtual_cold_water_meter": {
+        "name": "Virtuell kallvattenmätare"
+      },
+      "virtual_hot_water_meter": {
+        "name": "Virtuell varmvattenmätare"
+      },
+      "virtual_electricity_meter": {
+        "name": "Virtuell elmätare"
+      },
+      "virtual_electricity_export_meter": {
+        "name": "Virtuell el-export mätare"
+      },
+      "virtual_heat_meter": {
+        "name": "Virtuell värmemätare"
+      },
+      "virtual_meter": {
+        "name": "Virtuell mätare"
+      }
+    }
+  },
+  "config": {
+    "abort": {
+      "already_configured": "Enheten är redan konfigurerad"
+    },
+    "error": {
+      "cannot_connect": "Kunde inte ansluta",
+      "invalid_auth": "Fel e-post och/eller lösenord",
+      "invalid_code": "Ogiltig verifieringskod. Försök igen.",
+      "invalid_code_format": "Koden måste vara 6 siffror",
+      "no_2fa_methods": "Tvåfaktorsautentisering krävs men inga metoder är tillgängliga",
+      "rate_limit": "Begäran överskred gränsen. Försök igen senare.",
+      "unknown": "Oväntat fel",
+      "user_not_found": "Inget konto hittades med denna e-post",
+      "passkey_only": "Detta konto använder passkey-inloggning som inte stöds i Home Assistant",
+      "no_meters": "Inga mätare hittades på ditt konto. Vänligen lägg till mätare via Målerportal konsumentappen först."
+    },
+    "step": {
+      "user": {
+        "title": "Logga in på Målerportal",
+        "description": "Ange din e-postadress för att fortsätta",
+        "data": {
+          "email": "E-post"
+        }
+      },
+      "password": {
+        "title": "Ange lösenord",
+        "description": "Loggar in som {email}",
+        "data": {
+          "password": "Lösenord"
+        }
+      },
+      "2fa_choice": {
+        "title": "Tvåfaktorsautentisering",
+        "description": "Välj hur du vill verifiera din identitet",
+        "menu_options": {
+          "totp": "Authenticator-app",
+          "email": "E-postkod"
+        }
+      },
+      "2fa_totp": {
+        "title": "Authenticator-app",
+        "description": "Ange den 6-siffriga koden från din authenticator-app",
+        "data": {
+          "code": "Verifieringskod"
+        }
+      },
+      "2fa_email": {
+        "title": "E-postverifiering",
+        "description": "En 6-siffrig kod har skickats till {email}. Ange den nedan.",
+        "data": {
+          "code": "Verifieringskod"
+        }
+      },
+      "entity_selection": {
+        "title": "Välj mätare",
+        "description": "Välj vilka mätare som ska läggas till i Home Assistant",
+        "data": {
+          "entity_selection": "Mätare"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Inställningar",
+        "description": "Konfigurera Målerportal-integrationsinställningar",
+        "data": {
+          "polling_interval": "Uppdateringsintervall (minuter)"
+        },
+        "data_description": {
+          "polling_interval": "Hur ofta nya mätardata ska hämtas (15-120 minuter)"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Uppdatera mätardata",
+      "description": "Uppdatera mätardata manuellt från Målerportal API",
+      "fields": {
+        "installation_id": {
+          "name": "Installations-ID",
+          "description": "Valfritt. Installations-ID att uppdatera. Om inte angivet uppdateras alla installationer."
+        }
+      }
+    }
+  }
+}

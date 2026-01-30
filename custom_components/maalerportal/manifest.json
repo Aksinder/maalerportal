@@ -3,14 +3,15 @@
   "name": "M\u00e5lerportal",
   "codeowners": ["@maalerportal"],
   "config_flow": true,
-  "dependencies": ["recorder"],
+  "dependencies": [],
   "documentation": "https://github.com/maalerportal/maalerportal",
   "issue_tracker": "https://github.com/maalerportal/maalerportal/issues",
   "homekit": {},
   "iot_class": "cloud_polling",
   "loggers": ["M\u00e5lerportal"],
-  "requirements": ["smarthome-meterportal==1.0.2"],
+  "requirements": [],
   "ssdp": [],
   "zeroconf": [],
-  "version": "1.2.1"
+  "version": "2.0.0",
+  "homeassistant": "2023.1.0"
 }

@@ -11,8 +11,8 @@ Guide docker: https://www.simplysmart.house/blog/how-to-install-HACS-on-home-ass
 
 
 ## Installation:
-- Go to “HACS” on the left-hand side of the Home Assistant dashboard
-- Click the button I the top “right corner” <br/>
+- Go to "HACS" on the left-hand side of the Home Assistant dashboard
+- Click the button in the top right corner <br/>
     ![alt text](documentation/image.png)
 - Add this repository (https://github.com/maalerportal/maalerportal) as a custom repository<br/>
 ![alt text](documentation/image2.png)
@@ -20,21 +20,46 @@ Guide docker: https://www.simplysmart.house/blog/how-to-install-HACS-on-home-ass
 - Press the X button
 - Search for and download the "Målerportal" integration.
 - Restart Home Assistant.
-- After the restart go to “Settings” -> “Add Integration”
-- Search and click on “Målerportal”         
-  You will now be prompted for your login.
-- Select what entity you want to add to your Home Assistant. (you can always add more later)
+- After the restart go to "Settings" → "Devices & Services" → "Add Integration"
+- Search and click on "Målerportal"         
+- You will now be prompted to log in with your Målerportal credentials
+- Select which meters you want to add to Home Assistant (you can always add more later)
+- **Wait 1-2 minutes** for the integration to fetch your historical meter data
+
+**Note:** The first data fetch may take a few minutes as it retrieves up to 30 days of historical readings for the Energy Dashboard.
  
-## Add the meter to your energy tab:
+## Sensor Types
 
-- In Home Assistant
-- On the left side
-- Click the “Energy” menu.
-- Click the next button until you get to “Water consumption”
-- Click “Add Water Source”
-- Click the “Water usage” field
-- Select the sensor (Entity) you wish to get displayed.
-- Click “Save”<br/>
+The integration creates the following sensors for each meter:
 
-You can now click “Show me my energy dashboard!”<br/>
-Here you will see your usage on a bar chart of your sensor (entity)
+| Meter Type | Sensors Created |
+|------------|-----------------|
+| **Water (Cold/Hot)** | Meter Reading, Energy Dashboard sensor |
+| **Electricity** | Energy Dashboard sensor, Virtual Meter Reading (for consumption-type) |
+| **Heat** | Meter Reading, Energy Dashboard sensor |
+
+**Note:** Sensors marked "(Energy Dashboard)" or "(Energi-dashboard)" are specifically designed for use with Home Assistant's Energy Dashboard and contain historical data.
+
+## Add meters to your Energy Dashboard:
+
+### Electricity Meters
+1. Go to **Settings** → **Dashboards** → **Energy**
+2. Under "Electricity grid", click **Add consumption**
+3. Select the sensor ending with "El (Energy Dashboard)" or "Electricity (Energy Dashboard)"
+4. For solar/export: Click **Add return to grid** and select the export sensor
+5. Click **Save**
+
+### Water Meters
+1. Go to **Settings** → **Dashboards** → **Energy**
+2. Scroll down to "Water consumption"
+3. Click **Add water source**
+4. Select the sensor ending with "(Energy Dashboard)" - choose the correct one for cold or hot water
+5. Click **Save**
+
+### Heat Meters
+1. Go to **Settings** → **Dashboards** → **Energy**
+2. Under "Gas consumption", click **Add gas source**
+3. Select the heat sensor ending with "(Energy Dashboard)"
+4. Click **Save**
+
+After saving, click **"Show me my energy dashboard!"** to see your consumption data.

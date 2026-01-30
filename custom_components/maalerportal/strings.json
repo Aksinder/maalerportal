@@ -1,4 +1,134 @@
 {
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Meter reading"
+      },
+      "meter_reading_water": {
+        "name": "Water meter reading"
+      },
+      "meter_reading_electricity": {
+        "name": "Electricity meter reading"
+      },
+      "meter_reading_heat": {
+        "name": "Heat meter reading"
+      },
+      "consumption": {
+        "name": "Consumption"
+      },
+      "cold_water": {
+        "name": "Cold water"
+      },
+      "hot_water": {
+        "name": "Hot water"
+      },
+      "electricity_import": {
+        "name": "Electricity import"
+      },
+      "electricity_export": {
+        "name": "Electricity export"
+      },
+      "heat": {
+        "name": "Heat"
+      },
+      "cold_water_consumption": {
+        "name": "Cold water consumption"
+      },
+      "hot_water_consumption": {
+        "name": "Hot water consumption"
+      },
+      "electricity_import_consumption": {
+        "name": "Electricity import consumption"
+      },
+      "electricity_export_consumption": {
+        "name": "Electricity export consumption"
+      },
+      "heat_consumption": {
+        "name": "Heat consumption"
+      },
+      "battery_days": {
+        "name": "Battery days remaining"
+      },
+      "max_ambient_temperature": {
+        "name": "Max ambient temperature"
+      },
+      "min_ambient_temperature": {
+        "name": "Min ambient temperature"
+      },
+      "max_water_temperature": {
+        "name": "Max water temperature"
+      },
+      "min_water_temperature": {
+        "name": "Min water temperature"
+      },
+      "max_flow": {
+        "name": "Max flow"
+      },
+      "min_flow": {
+        "name": "Min flow"
+      },
+      "acoustic_noise": {
+        "name": "Acoustic noise"
+      },
+      "price_per_unit": {
+        "name": "Price per unit"
+      },
+      "supply_temperature": {
+        "name": "Supply temperature"
+      },
+      "return_temperature": {
+        "name": "Return temperature"
+      },
+      "temperature_difference": {
+        "name": "Temperature difference"
+      },
+      "heat_power": {
+        "name": "Heat power"
+      },
+      "heat_volume": {
+        "name": "Heat volume"
+      },
+      "cold_water_statistic": {
+        "name": "Cold water (Energy Dashboard)"
+      },
+      "hot_water_statistic": {
+        "name": "Hot water (Energy Dashboard)"
+      },
+      "electricity_statistic": {
+        "name": "Electricity (Energy Dashboard)"
+      },
+      "electricity_import_statistic": {
+        "name": "Electricity import (Energy Dashboard)"
+      },
+      "electricity_export_statistic": {
+        "name": "Electricity export (Energy Dashboard)"
+      },
+      "heat_statistic": {
+        "name": "Heat (Energy Dashboard)"
+      },
+      "energy_statistic": {
+        "name": "Energy (Energy Dashboard)"
+      },
+      "virtual_cold_water_meter": {
+        "name": "Virtual cold water meter"
+      },
+      "virtual_hot_water_meter": {
+        "name": "Virtual hot water meter"
+      },
+      "virtual_electricity_meter": {
+        "name": "Virtual electricity meter"
+      },
+      "virtual_electricity_export_meter": {
+        "name": "Virtual electricity export meter"
+      },
+      "virtual_heat_meter": {
+        "name": "Virtual heat meter"
+      },
+      "virtual_meter": {
+        "name": "Virtual meter"
+      }
+    }
+  },
   "config": {
     "abort": {
       "already_configured": "Device is already configured"
@@ -6,14 +136,83 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Wrong email and/or password",
-      "unknown": "Unexpected error"
+      "invalid_code": "Invalid verification code. Please try again.",
+      "invalid_code_format": "Code must be 6 digits",
+      "no_2fa_methods": "Two-factor authentication required but no methods available",
+      "rate_limit": "Rate limit exceeded. Please try again later.",
+      "unknown": "Unexpected error",
+      "user_not_found": "No account found with this email",
+      "passkey_only": "This account uses passkey login which is not supported in Home Assistant",
+      "no_meters": "No meters found on your account. Please add meters via the Målerportal consumer app first."
     },
     "step": {
       "user": {
+        "title": "Log in to Målerportal",
+        "description": "Enter your email address to continue",
         "data": {
-          "email": "Email",
-          "host": "Host",
+          "email": "Email"
+        }
+      },
+      "password": {
+        "title": "Enter password",
+        "description": "Logging in as {email}",
+        "data": {
           "password": "Password"
+        }
+      },
+      "2fa_choice": {
+        "title": "Two-factor authentication",
+        "description": "Choose how to verify your identity",
+        "menu_options": {
+          "totp": "Authenticator app",
+          "email": "Email code"
+        }
+      },
+      "2fa_totp": {
+        "title": "Authenticator app",
+        "description": "Enter the 6-digit code from your authenticator app",
+        "data": {
+          "code": "Verification code"
+        }
+      },
+      "2fa_email": {
+        "title": "Email verification",
+        "description": "A 6-digit code has been sent to {email}. Enter it below.",
+        "data": {
+          "code": "Verification code"
+        }
+      },
+      "entity_selection": {
+        "title": "Select meters",
+        "description": "Select which meters to add to Home Assistant",
+        "data": {
+          "entity_selection": "Meters"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "description": "Configure Målerportal integration settings",
+        "data": {
+          "polling_interval": "Update interval (minutes)"
+        },
+        "data_description": {
+          "polling_interval": "How often to fetch new meter readings (15-120 minutes)"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh meter readings",
+      "description": "Manually refresh meter readings from Meterportal API",
+      "fields": {
+        "installation_id": {
+          "name": "Installation ID",
+          "description": "Optional. The installation ID to refresh. If not provided, all installations will be refreshed."
         }
       }
     }

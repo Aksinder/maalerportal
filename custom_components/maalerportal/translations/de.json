@@ -1,0 +1,220 @@
+{
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Zählerstand"
+      },
+      "meter_reading_water": {
+        "name": "Wasserzählerstand"
+      },
+      "meter_reading_electricity": {
+        "name": "Stromzählerstand"
+      },
+      "meter_reading_heat": {
+        "name": "Wärmezählerstand"
+      },
+      "consumption": {
+        "name": "Verbrauch"
+      },
+      "cold_water": {
+        "name": "Kaltwasser"
+      },
+      "hot_water": {
+        "name": "Warmwasser"
+      },
+      "electricity_import": {
+        "name": "Stromimport"
+      },
+      "electricity_export": {
+        "name": "Stromexport"
+      },
+      "heat": {
+        "name": "Wärme"
+      },
+      "cold_water_consumption": {
+        "name": "Kaltwasserverbrauch"
+      },
+      "hot_water_consumption": {
+        "name": "Warmwasserverbrauch"
+      },
+      "electricity_import_consumption": {
+        "name": "Stromimportverbrauch"
+      },
+      "electricity_export_consumption": {
+        "name": "Stromexportverbrauch"
+      },
+      "heat_consumption": {
+        "name": "Wärmeverbrauch"
+      },
+      "battery_days": {
+        "name": "Verbleibende Batterietage"
+      },
+      "max_ambient_temperature": {
+        "name": "Max. Umgebungstemperatur"
+      },
+      "min_ambient_temperature": {
+        "name": "Min. Umgebungstemperatur"
+      },
+      "max_water_temperature": {
+        "name": "Max. Wassertemperatur"
+      },
+      "min_water_temperature": {
+        "name": "Min. Wassertemperatur"
+      },
+      "max_flow": {
+        "name": "Max. Durchfluss"
+      },
+      "min_flow": {
+        "name": "Min. Durchfluss"
+      },
+      "acoustic_noise": {
+        "name": "Akustisches Rauschen"
+      },
+      "price_per_unit": {
+        "name": "Preis pro Einheit"
+      },
+      "supply_temperature": {
+        "name": "Vorlauftemperatur"
+      },
+      "return_temperature": {
+        "name": "Rücklauftemperatur"
+      },
+      "temperature_difference": {
+        "name": "Temperaturdifferenz"
+      },
+      "heat_power": {
+        "name": "Wärmeleistung"
+      },
+      "heat_volume": {
+        "name": "Wärmevolumen"
+      },
+      "cold_water_statistic": {
+        "name": "Kaltwasser (Energie-Dashboard)"
+      },
+      "hot_water_statistic": {
+        "name": "Warmwasser (Energie-Dashboard)"
+      },
+      "electricity_statistic": {
+        "name": "Strom (Energie-Dashboard)"
+      },
+      "electricity_import_statistic": {
+        "name": "Stromimport (Energie-Dashboard)"
+      },
+      "electricity_export_statistic": {
+        "name": "Stromexport (Energie-Dashboard)"
+      },
+      "heat_statistic": {
+        "name": "Wärme (Energie-Dashboard)"
+      },
+      "energy_statistic": {
+        "name": "Energie (Energie-Dashboard)"
+      },
+      "virtual_cold_water_meter": {
+        "name": "Virtueller Kaltwasserzähler"
+      },
+      "virtual_hot_water_meter": {
+        "name": "Virtueller Warmwasserzähler"
+      },
+      "virtual_electricity_meter": {
+        "name": "Virtueller Stromzähler"
+      },
+      "virtual_electricity_export_meter": {
+        "name": "Virtueller Strom-Export-Zähler"
+      },
+      "virtual_heat_meter": {
+        "name": "Virtueller Wärmezähler"
+      },
+      "virtual_meter": {
+        "name": "Virtueller Zähler"
+      }
+    }
+  },
+  "config": {
+    "abort": {
+      "already_configured": "Gerät ist bereits konfiguriert"
+    },
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen",
+      "invalid_auth": "Falsche E-Mail und/oder Passwort",
+      "invalid_code": "Ungültiger Bestätigungscode. Bitte versuchen Sie es erneut.",
+      "invalid_code_format": "Der Code muss 6 Ziffern haben",
+      "no_2fa_methods": "Zwei-Faktor-Authentifizierung erforderlich, aber keine Methoden verfügbar",
+      "rate_limit": "Anfragelimit überschritten. Bitte versuchen Sie es später erneut.",
+      "unknown": "Unerwarteter Fehler",
+      "user_not_found": "Kein Konto mit dieser E-Mail gefunden",
+      "passkey_only": "Dieses Konto verwendet Passkey-Anmeldung, die in Home Assistant nicht unterstützt wird",
+      "no_meters": "Keine Zähler auf Ihrem Konto gefunden. Bitte fügen Sie zuerst Zähler über die Målerportal-Verbraucher-App hinzu."
+    },
+    "step": {
+      "user": {
+        "title": "Bei Målerportal anmelden",
+        "description": "Geben Sie Ihre E-Mail-Adresse ein, um fortzufahren",
+        "data": {
+          "email": "E-Mail"
+        }
+      },
+      "password": {
+        "title": "Passwort eingeben",
+        "description": "Anmeldung als {email}",
+        "data": {
+          "password": "Passwort"
+        }
+      },
+      "2fa_choice": {
+        "title": "Zwei-Faktor-Authentifizierung",
+        "description": "Wählen Sie, wie Sie Ihre Identität bestätigen möchten",
+        "menu_options": {
+          "totp": "Authenticator-App",
+          "email": "E-Mail-Code"
+        }
+      },
+      "2fa_totp": {
+        "title": "Authenticator-App",
+        "description": "Geben Sie den 6-stelligen Code aus Ihrer Authenticator-App ein",
+        "data": {
+          "code": "Bestätigungscode"
+        }
+      },
+      "2fa_email": {
+        "title": "E-Mail-Verifizierung",
+        "description": "Ein 6-stelliger Code wurde an {email} gesendet. Geben Sie ihn unten ein.",
+        "data": {
+          "code": "Bestätigungscode"
+        }
+      },
+      "entity_selection": {
+        "title": "Zähler auswählen",
+        "description": "Wählen Sie, welche Zähler zu Home Assistant hinzugefügt werden sollen",
+        "data": {
+          "entity_selection": "Zähler"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "description": "Målerportal-Integrationseinstellungen konfigurieren",
+        "data": {
+          "polling_interval": "Aktualisierungsintervall (Minuten)"
+        },
+        "data_description": {
+          "polling_interval": "Wie oft neue Zählerdaten abgerufen werden sollen (15-120 Minuten)"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Zählerdaten aktualisieren",
+      "description": "Zählerdaten manuell von der Målerportal API aktualisieren",
+      "fields": {
+        "installation_id": {
+          "name": "Installations-ID",
+          "description": "Optional. Die Installations-ID zum Aktualisieren. Wenn nicht angegeben, werden alle Installationen aktualisiert."
+        }
+      }
+    }
+  }
+}

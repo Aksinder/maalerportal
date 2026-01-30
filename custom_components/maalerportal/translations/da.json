@@ -1,4 +1,134 @@
 {
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Måleraflæsning"
+      },
+      "meter_reading_water": {
+        "name": "Vandmåleraflæsning"
+      },
+      "meter_reading_electricity": {
+        "name": "Elmåleraflæsning"
+      },
+      "meter_reading_heat": {
+        "name": "Varmemåleraflæsning"
+      },
+      "consumption": {
+        "name": "Forbrug"
+      },
+      "cold_water": {
+        "name": "Koldt vand"
+      },
+      "hot_water": {
+        "name": "Varmt vand"
+      },
+      "electricity_import": {
+        "name": "El-import"
+      },
+      "electricity_export": {
+        "name": "El-eksport"
+      },
+      "heat": {
+        "name": "Varme"
+      },
+      "cold_water_consumption": {
+        "name": "Koldtvandsforbrug"
+      },
+      "hot_water_consumption": {
+        "name": "Varmtvandsforbrug"
+      },
+      "electricity_import_consumption": {
+        "name": "El-import forbrug"
+      },
+      "electricity_export_consumption": {
+        "name": "El-eksport forbrug"
+      },
+      "heat_consumption": {
+        "name": "Varmeforbrug"
+      },
+      "battery_days": {
+        "name": "Batteridage tilbage"
+      },
+      "max_ambient_temperature": {
+        "name": "Maks. omgivelsestemperatur"
+      },
+      "min_ambient_temperature": {
+        "name": "Min. omgivelsestemperatur"
+      },
+      "max_water_temperature": {
+        "name": "Maks. vandtemperatur"
+      },
+      "min_water_temperature": {
+        "name": "Min. vandtemperatur"
+      },
+      "max_flow": {
+        "name": "Maks. flow"
+      },
+      "min_flow": {
+        "name": "Min. flow"
+      },
+      "acoustic_noise": {
+        "name": "Akustisk støj"
+      },
+      "price_per_unit": {
+        "name": "Pris pr. enhed"
+      },
+      "supply_temperature": {
+        "name": "Fremløbstemperatur"
+      },
+      "return_temperature": {
+        "name": "Returtemperatur"
+      },
+      "temperature_difference": {
+        "name": "Temperaturforskel"
+      },
+      "heat_power": {
+        "name": "Varmeeffekt"
+      },
+      "heat_volume": {
+        "name": "Varmevolumen"
+      },
+      "cold_water_statistic": {
+        "name": "Koldt vand (Energi-dashboard)"
+      },
+      "hot_water_statistic": {
+        "name": "Varmt vand (Energi-dashboard)"
+      },
+      "electricity_statistic": {
+        "name": "El (Energi-dashboard)"
+      },
+      "electricity_import_statistic": {
+        "name": "El-import (Energi-dashboard)"
+      },
+      "electricity_export_statistic": {
+        "name": "El-eksport (Energi-dashboard)"
+      },
+      "heat_statistic": {
+        "name": "Varme (Energi-dashboard)"
+      },
+      "energy_statistic": {
+        "name": "Energi (Energi-dashboard)"
+      },
+      "virtual_cold_water_meter": {
+        "name": "Virtuel koldtvandstællerstand"
+      },
+      "virtual_hot_water_meter": {
+        "name": "Virtuel varmtvandstællerstand"
+      },
+      "virtual_electricity_meter": {
+        "name": "Virtuel el-tællerstand"
+      },
+      "virtual_electricity_export_meter": {
+        "name": "Virtuel el-eksport tællerstand"
+      },
+      "virtual_heat_meter": {
+        "name": "Virtuel varmetællerstand"
+      },
+      "virtual_meter": {
+        "name": "Virtuel tællerstand"
+      }
+    }
+  },
   "config": {
     "abort": {
       "already_configured": "Enheden er allerede konfigureret"
@@ -6,14 +136,83 @@
     "error": {
       "cannot_connect": "Kunne ikke oprette forbindelse",
       "invalid_auth": "Forkert e-mail og/eller adgangskode",
-      "unknown": "Uventet fejl"
+      "invalid_code": "Ugyldig bekræftelseskode. Prøv igen.",
+      "invalid_code_format": "Koden skal være 6 cifre",
+      "no_2fa_methods": "To-faktor-godkendelse kræves, men ingen metoder er tilgængelige",
+      "rate_limit": "For mange forsøg. Prøv igen senere.",
+      "unknown": "Uventet fejl",
+      "user_not_found": "Ingen konto fundet med denne e-mail",
+      "passkey_only": "Denne konto bruger passkey-login, som ikke understøttes i Home Assistant",
+      "no_meters": "Der blev ikke fundet nogen målere på din konto. Tilføj venligst målere via Målerportal forbrugerappen først."
     },
     "step": {
       "user": {
+        "title": "Log ind på Målerportal",
+        "description": "Indtast din e-mailadresse for at fortsætte",
         "data": {
-          "email": "E-mail",
-          "host": "Vært",
+          "email": "E-mail"
+        }
+      },
+      "password": {
+        "title": "Indtast adgangskode",
+        "description": "Logger ind som {email}",
+        "data": {
           "password": "Adgangskode"
+        }
+      },
+      "2fa_choice": {
+        "title": "To-faktor-godkendelse",
+        "description": "Vælg hvordan du vil bekræfte din identitet",
+        "menu_options": {
+          "totp": "Autentificeringsapp",
+          "email": "E-mail-kode"
+        }
+      },
+      "2fa_totp": {
+        "title": "Autentificeringsapp",
+        "description": "Indtast den 6-cifrede kode fra din autentificeringsapp",
+        "data": {
+          "code": "Bekræftelseskode"
+        }
+      },
+      "2fa_email": {
+        "title": "E-mail-bekræftelse",
+        "description": "En 6-cifret kode er blevet sendt til {email}. Indtast den nedenfor.",
+        "data": {
+          "code": "Bekræftelseskode"
+        }
+      },
+      "entity_selection": {
+        "title": "Vælg målere",
+        "description": "Vælg hvilke målere der skal tilføjes til Home Assistant",
+        "data": {
+          "entity_selection": "Målere"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Indstillinger",
+        "description": "Konfigurer Målerportal-integrationsindstillinger",
+        "data": {
+          "polling_interval": "Opdateringsinterval (minutter)"
+        },
+        "data_description": {
+          "polling_interval": "Hvor ofte der skal hentes nye målerdata (15-120 minutter)"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Opdater målerdata",
+      "description": "Opdater målerdata manuelt fra Målerportal API",
+      "fields": {
+        "installation_id": {
+          "name": "Installations-ID",
+          "description": "Valgfrit. Installations-ID'et der skal opdateres. Hvis ikke angivet, opdateres alle installationer."
         }
       }
     }

@@ -1,0 +1,220 @@
+{
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Måleravlesning"
+      },
+      "meter_reading_water": {
+        "name": "Vannmåleravlesning"
+      },
+      "meter_reading_electricity": {
+        "name": "Strømmåleravlesning"
+      },
+      "meter_reading_heat": {
+        "name": "Varmemåleravlesning"
+      },
+      "consumption": {
+        "name": "Forbruk"
+      },
+      "cold_water": {
+        "name": "Kaldt vann"
+      },
+      "hot_water": {
+        "name": "Varmt vann"
+      },
+      "electricity_import": {
+        "name": "Strømimport"
+      },
+      "electricity_export": {
+        "name": "Strømeksport"
+      },
+      "heat": {
+        "name": "Varme"
+      },
+      "cold_water_consumption": {
+        "name": "Kaldtvannsforbruk"
+      },
+      "hot_water_consumption": {
+        "name": "Varmtvannsforbruk"
+      },
+      "electricity_import_consumption": {
+        "name": "Strømimportforbruk"
+      },
+      "electricity_export_consumption": {
+        "name": "Strømeksportforbruk"
+      },
+      "heat_consumption": {
+        "name": "Varmeforbruk"
+      },
+      "battery_days": {
+        "name": "Gjenstående batteridager"
+      },
+      "max_ambient_temperature": {
+        "name": "Maks. omgivelsestemperatur"
+      },
+      "min_ambient_temperature": {
+        "name": "Min. omgivelsestemperatur"
+      },
+      "max_water_temperature": {
+        "name": "Maks. vanntemperatur"
+      },
+      "min_water_temperature": {
+        "name": "Min. vanntemperatur"
+      },
+      "max_flow": {
+        "name": "Maks. flow"
+      },
+      "min_flow": {
+        "name": "Min. flow"
+      },
+      "acoustic_noise": {
+        "name": "Akustisk støy"
+      },
+      "price_per_unit": {
+        "name": "Pris per enhet"
+      },
+      "supply_temperature": {
+        "name": "Tilførselstemperatur"
+      },
+      "return_temperature": {
+        "name": "Returtemperatur"
+      },
+      "temperature_difference": {
+        "name": "Temperaturforskjell"
+      },
+      "heat_power": {
+        "name": "Varmeeffekt"
+      },
+      "heat_volume": {
+        "name": "Varmevolum"
+      },
+      "cold_water_statistic": {
+        "name": "Kaldt vann (Energi-dashbord)"
+      },
+      "hot_water_statistic": {
+        "name": "Varmt vann (Energi-dashbord)"
+      },
+      "electricity_statistic": {
+        "name": "Strøm (Energi-dashbord)"
+      },
+      "electricity_import_statistic": {
+        "name": "Strømimport (Energi-dashbord)"
+      },
+      "electricity_export_statistic": {
+        "name": "Strømeksport (Energi-dashbord)"
+      },
+      "heat_statistic": {
+        "name": "Varme (Energi-dashbord)"
+      },
+      "energy_statistic": {
+        "name": "Energi (Energi-dashbord)"
+      },
+      "virtual_cold_water_meter": {
+        "name": "Virtuell kaldtvannsmåler"
+      },
+      "virtual_hot_water_meter": {
+        "name": "Virtuell varmtvannsmåler"
+      },
+      "virtual_electricity_meter": {
+        "name": "Virtuell strømmåler"
+      },
+      "virtual_electricity_export_meter": {
+        "name": "Virtuell strøm-eksport måler"
+      },
+      "virtual_heat_meter": {
+        "name": "Virtuell varmemåler"
+      },
+      "virtual_meter": {
+        "name": "Virtuell måler"
+      }
+    }
+  },
+  "config": {
+    "abort": {
+      "already_configured": "Enheten er allerede konfigurert"
+    },
+    "error": {
+      "cannot_connect": "Kunne ikke koble til",
+      "invalid_auth": "Feil e-post og/eller passord",
+      "invalid_code": "Ugyldig bekreftelseskode. Prøv igjen.",
+      "invalid_code_format": "Koden må være 6 sifre",
+      "no_2fa_methods": "Tofaktorautentisering kreves, men ingen metoder er tilgjengelige",
+      "rate_limit": "Forespørselsgrense nådd. Prøv igjen senere.",
+      "unknown": "Uventet feil",
+      "user_not_found": "Ingen konto funnet med denne e-posten",
+      "passkey_only": "Denne kontoen bruker passkey-innlogging som ikke støttes i Home Assistant",
+      "no_meters": "Ingen målere funnet på kontoen din. Vennligst legg til målere via Målerportal forbrukerappen først."
+    },
+    "step": {
+      "user": {
+        "title": "Logg inn på Målerportal",
+        "description": "Skriv inn e-postadressen din for å fortsette",
+        "data": {
+          "email": "E-post"
+        }
+      },
+      "password": {
+        "title": "Skriv inn passord",
+        "description": "Logger inn som {email}",
+        "data": {
+          "password": "Passord"
+        }
+      },
+      "2fa_choice": {
+        "title": "Tofaktorautentisering",
+        "description": "Velg hvordan du vil bekrefte identiteten din",
+        "menu_options": {
+          "totp": "Authenticator-app",
+          "email": "E-postkode"
+        }
+      },
+      "2fa_totp": {
+        "title": "Authenticator-app",
+        "description": "Skriv inn den 6-sifrede koden fra authenticator-appen din",
+        "data": {
+          "code": "Bekreftelseskode"
+        }
+      },
+      "2fa_email": {
+        "title": "E-postbekreftelse",
+        "description": "En 6-sifret kode er sendt til {email}. Skriv den inn nedenfor.",
+        "data": {
+          "code": "Bekreftelseskode"
+        }
+      },
+      "entity_selection": {
+        "title": "Velg målere",
+        "description": "Velg hvilke målere som skal legges til i Home Assistant",
+        "data": {
+          "entity_selection": "Målere"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Innstillinger",
+        "description": "Konfigurer Målerportal-integrasjonsinnstillinger",
+        "data": {
+          "polling_interval": "Oppdateringsintervall (minutter)"
+        },
+        "data_description": {
+          "polling_interval": "Hvor ofte nye målerdata skal hentes (15-120 minutter)"
+        }
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Oppdater målerdata",
+      "description": "Oppdater målerdata manuelt fra Målerportal API",
+      "fields": {
+        "installation_id": {
+          "name": "Installasjons-ID",
+          "description": "Valgfritt. Installasjons-ID som skal oppdateres. Hvis ikke angitt, oppdateres alle installasjoner."
+        }
+      }
+    }
+  }
+}
