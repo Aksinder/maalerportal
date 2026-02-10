@@ -1,5 +1,5 @@
 """Test Målerportal sensors."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 import pytest
 from datetime import timedelta
 
@@ -32,7 +32,8 @@ async def test_sensor_setup(hass: HomeAssistant) -> None:
 
     # Mock coordinator update to return some data
     with patch(
-        "custom_components.maalerportal.MaalerportalCoordinator._async_update_data"
+        "custom_components.maalerportal.MaalerportalCoordinator._async_update_data",
+        new_callable=AsyncMock,
     ) as mock_update:
         mock_update.return_value = {
             "meterCounters": [
@@ -100,7 +101,8 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
 
     # Mock coordinator
     with patch(
-        "custom_components.maalerportal.MaalerportalCoordinator._async_update_data"
+        "custom_components.maalerportal.MaalerportalCoordinator._async_update_data",
+        new_callable=AsyncMock,
     ) as mock_update:
         # Initial data
         mock_update.return_value = {

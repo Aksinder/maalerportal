@@ -156,7 +156,9 @@ async def test_duplicate_entry(hass: HomeAssistant, mock_check_auth: AsyncMock) 
         title="Existing Entry",
         data={"email": "test@example.com"},
         source=config_entries.SOURCE_USER,
-        unique_id="test@example.com",
+        discovery_keys={},
+        minor_version=1,
+        options={},
     )
     # Usually in tests we mock adding to registry or use MockConfigEntry
     # But checking implementation:

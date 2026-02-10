@@ -475,7 +475,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         from homeassistant.components.recorder.models import (
             StatisticData,
             StatisticMetaData,
-            StatisticMeanType,
         )
         from homeassistant.components.recorder.statistics import (
             async_import_statistics,
@@ -773,7 +772,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         from homeassistant.components.recorder.models import (
             StatisticData,
             StatisticMetaData,
-            StatisticMeanType,
         )
         from homeassistant.components.recorder.statistics import async_import_statistics
         
