@@ -14,17 +14,22 @@ from tests.common import MockConfigEntry
 def mock_aiohttp():
     """Mock aiohttp clientsession."""
     with patch("homeassistant.helpers.aiohttp_client.async_get_clientsession") as mock_session:
-        session = MagicMock()
+        # Create response as AsyncMock to support await response.json()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.ok = True
-        mock_response.json.return_value = {"readings": []}
+        mock_response.json = AsyncMock(return_value={"readings": []})
         
-        # Configure context managers to be awaitable
-        session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-        session.get.return_value.__aexit__ = AsyncMock(return_value=None)
-        session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-        session.post.return_value.__aexit__ = AsyncMock(return_value=None)
+        # Support context manager protocol: async with session.get(...) as response:
+        # This requires session.get() to return an awaitable that resolves to mock_response,
+        # AND mock_response must have __aenter__ returning itself.
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        
+        # Create session as AsyncMock so session.get/post are AsyncMocks returning mock_response
+        session = AsyncMock()
+        session.get.return_value = mock_response
+        session.post.return_value = mock_response
         
         mock_session.return_value = session
         yield mock_session
@@ -96,9 +101,14 @@ async def test_sensor_setup(hass: HomeAssistant) -> None:
         # Note: In actual HA env, reliable ID generation applies. Here we just assume it exists.
         
         # Just check that we have states with 1000.5 and 200
-        values = [s.state for s in sensor_states]
+        # Filter out "unknown" which comes from statistics sensors
+        values = [s.state for s in sensor_states if s.state != "unknown"]
         assert "1000.5" in values
         assert "200" in values
+        
+        # Cleanup
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 async def test_sensor_update(hass: HomeAssistant) -> None:
     """Test sensor updates."""
@@ -164,3 +174,7 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
         # Check new state
         new_state = hass.states.get(sensor.entity_id)
         assert new_state.state == "1001"
+        
+        # Cleanup
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()

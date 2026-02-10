@@ -65,7 +65,8 @@ async def test_form(
     mock_login: AsyncMock,
     mock_get_api_key: AsyncMock,
     mock_test_connection: AsyncMock,
-    mock_setup_entry: AsyncMock
+    mock_setup_entry: AsyncMock,
+    mock_aiohttp: AsyncMock
 ) -> None:
     """Test we get the form."""
     result = await hass.config_entries.flow.async_init(
@@ -86,27 +87,22 @@ async def test_form(
     assert result2["errors"] == {}
 
     # Step 2: Password
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        # Mock addresses response for entity selection step
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.ok = True
-        mock_response.json.return_value = [{
-            "address": "Test Address 1",
-            "installations": [{
-                "installationId": "12345",
-                "installationType": "Electricity",
-                "meterSerial": "M123",
-                "utilityName": "Test Utility"
-            }]
+    # Mock addresses response for entity selection step
+    mock_aiohttp.get.return_value.json.return_value = [{
+        "address": "Test Address 1",
+        "installations": [{
+            "installationId": "12345",
+            "installationType": "Electricity",
+            "meterSerial": "M123",
+            "utilityName": "Test Utility"
         }]
-        mock_get.return_value.__aenter__.return_value = mock_response
+    }]
 
-        # Submit password
-        result3 = await hass.config_entries.flow.async_configure(
-            result2["flow_id"],
-            {CONF_PASSWORD: "test-password"},
-        )
+    # Submit password
+    result3 = await hass.config_entries.flow.async_configure(
+        result2["flow_id"],
+        {CONF_PASSWORD: "test-password"},
+    )
         await hass.async_block_till_done()
 
         assert result3["type"] == data_entry_flow.FlowResultType.FORM

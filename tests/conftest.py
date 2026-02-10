@@ -20,6 +20,28 @@ def bypass_auth_fixture():
          patch("custom_components.maalerportal.config_flow.test_api_connection", new_callable=AsyncMock):
         yield
 
+@pytest.fixture(name="mock_aiohttp", autouse=True)
+def mock_aiohttp_fixture():
+    """Mock aiohttp clientsession."""
+    with patch("homeassistant.helpers.aiohttp_client.async_get_clientsession") as mock_session:
+        # Create response as AsyncMock to support await response.json()
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.ok = True
+        mock_response.json = AsyncMock(return_value={"readings": []})
+        
+        # Support context manager protocol: async with session.get(...) as response:
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        
+        # Create session as AsyncMock so session.get/post are AsyncMocks returning mock_response
+        session = AsyncMock()
+        session.get.return_value = mock_response
+        session.post.return_value = mock_response
+        
+        mock_session.return_value = session
+        yield session
+
 @pytest.fixture(autouse=True)
 def mock_recorder():
     """Mock recorder."""
