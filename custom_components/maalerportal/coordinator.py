@@ -43,12 +43,11 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API endpoint."""
         try:
-            async with aiohttp.ClientTimeout(total=30) as timeout:
-                response = await self.session.get(
-                    f"{self.base_url}/installations/{self.installation_id}/readings/latest",
-                    headers={"ApiKey": self.api_key},
-                    timeout=timeout,
-                )
+            async with self.session.get(
+                f"{self.base_url}/installations/{self.installation_id}/readings/latest",
+                headers={"ApiKey": self.api_key},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
 
                 if response.status == 429:
                     raise UpdateFailed("Rate limit exceeded")
