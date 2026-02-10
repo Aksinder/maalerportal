@@ -36,7 +36,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import Throttle
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -273,6 +272,9 @@ class MaalerportalBaseSensor(SensorEntity):
         self._counter = counter
         self._polling_interval = polling_interval
         
+        # Instance-based throttle tracking (replaces @Throttle decorator)
+        self._last_successful_update: Optional[datetime] = None
+        
         # Rate limiting
         self._rate_limit_delay = 2000  # 2 seconds between requests
         
@@ -326,6 +328,13 @@ class MaalerportalBaseSensor(SensorEntity):
 
     async def async_update(self) -> None:
         """Fetch data from API."""
+        # Instance-based throttle: skip if updated recently
+        now = datetime.now()
+        if self._last_successful_update is not None:
+            elapsed = now - self._last_successful_update
+            if elapsed < self._polling_interval:
+                return
+        
         # If installation is unavailable, only do periodic availability checks
         if not self._installation_available:
             await self._check_installation_availability()
@@ -374,6 +383,9 @@ class MaalerportalBaseSensor(SensorEntity):
                 await self._update_from_meter_counters(readings_data["meterCounters"])
             else:
                 _LOGGER.debug("No meter counters found in API response")
+            
+            # Mark successful update for throttle tracking
+            self._last_successful_update = now
 
         except asyncio.TimeoutError:
             _LOGGER.warning("Timeout fetching meter readings for installation: %s", self._installation_id)
@@ -593,7 +605,6 @@ class MaalerportalMainSensor(MaalerportalBaseSensor):
             self._attr_native_unit_of_measurement = counter.get("unit")
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -665,7 +676,6 @@ class MaalerportalBasicSensor(MaalerportalBaseSensor):
             self._attr_native_unit_of_measurement = None
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -715,7 +725,6 @@ class MaalerportalBatterySensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:battery"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -757,7 +766,6 @@ class MaalerportalTemperatureSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -799,7 +807,6 @@ class MaalerportalWaterTemperatureSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -841,7 +848,6 @@ class MaalerportalFlowSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:water-pump"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -877,7 +883,6 @@ class MaalerportalNoiseSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:volume-high"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -938,7 +943,6 @@ class MaalerportalSecondarySensor(MaalerportalBaseSensor):
         self._attr_unique_id = f"{self._installation_id}_{counter_type.lower()}_secondary"
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -991,7 +995,6 @@ class MaalerportalPriceSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:currency-usd"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -1127,9 +1130,15 @@ class MaalerportalConsumptionSensor(MaalerportalBaseSensor, RestoreEntity):
         # Fetch initial data
         await self._fetch_and_accumulate()
 
-    @Throttle(timedelta(hours=1))
     async def async_update(self) -> None:
         """Fetch new consumption data and update cumulative sum."""
+        # Instance-based throttle: skip if updated recently
+        now = datetime.now()
+        if self._last_successful_update is not None:
+            elapsed = now - self._last_successful_update
+            if elapsed < self._polling_interval:
+                return
+
         # If installation is unavailable, only do periodic availability checks
         if not self._installation_available:
             await self._check_installation_availability()
@@ -1137,6 +1146,8 @@ class MaalerportalConsumptionSensor(MaalerportalBaseSensor, RestoreEntity):
         
         if self._initialized:
             await self._fetch_and_accumulate()
+            # Mark successful update
+            self._last_successful_update = now
 
     async def _fetch_and_accumulate(self) -> None:
         """Fetch historical consumption data and accumulate into virtual meter reading."""
@@ -1298,7 +1309,6 @@ class MaalerportalSupplyTempSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-chevron-up"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -1335,7 +1345,6 @@ class MaalerportalReturnTempSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-chevron-down"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -1372,7 +1381,6 @@ class MaalerportalTempDiffSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-lines"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -1409,7 +1417,6 @@ class MaalerportalHeatPowerSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:fire"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -1446,7 +1453,6 @@ class MaalerportalHeatVolumeSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_icon = "mdi:water-thermometer"
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Fetch data from API with throttling."""
         await super().async_update()
@@ -1612,15 +1618,23 @@ class MaalerportalStatisticSensor(MaalerportalBaseSensor, RestoreEntity):
         # Schedule initial statistics update
         self.hass.async_create_task(self._async_update_statistics())
 
-    @Throttle(timedelta(minutes=30))
     async def async_update(self) -> None:
         """Update statistics from historical API data."""
+        # Instance-based throttle: skip if updated recently
+        now = datetime.now()
+        if self._last_successful_update is not None:
+            elapsed = now - self._last_successful_update
+            if elapsed < self._polling_interval:
+                return
+
         # If installation is unavailable, only do periodic availability checks
         if not self._installation_available:
             await self._check_installation_availability()
             return
         
         await self._async_update_statistics()
+        # Mark successful update
+        self._last_successful_update = now
 
     async def _async_update_statistics(self) -> None:
         """Fetch historical data and insert into Home Assistant statistics."""
