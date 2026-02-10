@@ -1,6 +1,6 @@
 """Global fixtures for Målerportal integration tests."""
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 # This fixture enables loading custom integrations in all tests.
 # Usually to enable custom integrations, you need to add this fixture
