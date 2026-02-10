@@ -103,26 +103,26 @@ async def test_form(
         result2["flow_id"],
         {CONF_PASSWORD: "test-password"},
     )
-        await hass.async_block_till_done()
+    await hass.async_block_till_done()
 
-        assert result3["type"] == data_entry_flow.FlowResultType.FORM
-        assert result3["step_id"] == "entity_selection"
-        assert result3["errors"] == {}
+    assert result3["type"] == data_entry_flow.FlowResultType.FORM
+    assert result3["step_id"] == "entity_selection"
+    assert result3["errors"] == {}
 
-        # Step 3: Entity Selection
-        result4 = await hass.config_entries.flow.async_configure(
-            result3["flow_id"],
-            {"entity_selection": ["12345"]},
-        )
-        await hass.async_block_till_done()
+    # Step 3: Entity Selection
+    result4 = await hass.config_entries.flow.async_configure(
+        result3["flow_id"],
+        {"entity_selection": ["12345"]},
+    )
+    await hass.async_block_till_done()
 
-        assert result4["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result4["title"] == "Målerportal (test@example.com)"
-        assert result4["data"]["api_key"] == "mock_api_key"
-        assert result4["data"]["email"] == "test@example.com"
-        assert result4["data"]["installations"][0]["installationId"] == "12345"
-        
-        assert len(mock_setup_entry.mock_calls) == 1
+    assert result4["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result4["title"] == "Målerportal (test@example.com)"
+    assert result4["data"]["api_key"] == "mock_api_key"
+    assert result4["data"]["email"] == "test@example.com"
+    assert result4["data"]["installations"][0]["installationId"] == "12345"
+    
+    assert len(mock_setup_entry.mock_calls) == 1
 
 async def test_form_invalid_auth(hass: HomeAssistant, mock_check_auth: AsyncMock) -> None:
     """Test handling invalid authentication."""
