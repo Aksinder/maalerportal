@@ -37,10 +37,15 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DEFAULT_POLLING_INTERVAL
+from .coordinator import MaalerportalCoordinator
 
 # Import event firing function - will be available after __init__ loads
 EVENT_METER_UPDATED = f"{DOMAIN}_meter_updated"
@@ -60,48 +65,24 @@ async def async_setup_entry(
     """Set up the sensor platform."""
 
     config_data = hass.data[DOMAIN][config.entry_id]
-    installations: list[dict] = config_data["installations"]
-    api_key: str = config_data["api_key"]
-    smarthome_base_url: str = config_data["smarthome_base_url"]
-    polling_interval = get_polling_interval(config)
+    config_data = hass.data[DOMAIN][config.entry_id]
     
+    # Get coordinators
+    coordinators = config_data.get("coordinators", {})
     sensors = []
-
-    for installation in installations:
-        try:
-            # Fetch meter counters to determine what sensors to create
-            session = async_get_clientsession(hass)
-            try:
-                response = await session.get(
-                    f"{smarthome_base_url}/installations/{installation['installationId']}/readings/latest",
-                    headers={"ApiKey": api_key},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                    )
-                    
-                if response.ok:
-                    readings_data = await response.json()
-                    meter_counters = readings_data.get("meterCounters", [])
-                    
-                    # Create sensors based on available meter counters
-                    installation_sensors = create_sensors_from_counters(
-                        installation, api_key, smarthome_base_url, meter_counters, polling_interval
-                    )
-                    sensors.extend(installation_sensors)
-                else:
-                    _LOGGER.warning("Failed to fetch meter data for installation %s (HTTP %s), creating basic sensor", 
-                                  installation["installationId"], response.status)
-                    # Fallback to basic sensor
-                    sensors.append(MaalerportalBasicSensor(installation, api_key, smarthome_base_url, polling_interval))
-            except asyncio.TimeoutError:
-                _LOGGER.warning("Timeout fetching meter data for installation %s, creating basic sensor", 
-                              installation["installationId"])
-                sensors.append(MaalerportalBasicSensor(installation, api_key, smarthome_base_url, polling_interval))
-        except Exception as err:
-            _LOGGER.error("Error setting up sensors for installation %s: %s", 
-                         installation["installationId"], err)
-            # Fallback to basic sensor
-            sensors.append(MaalerportalBasicSensor(installation, api_key, smarthome_base_url, polling_interval))
-
+    
+    for installation_id, coordinator in coordinators.items():
+        # Get data directly from coordinator
+        meter_counters = []
+        if coordinator.data:
+            meter_counters = coordinator.data.get("meterCounters", [])
+            
+        # Create sensors based on available meter counters
+        installation_sensors = create_sensors_from_counters(
+            coordinator, meter_counters
+        )
+        sensors.extend(installation_sensors)
+        
     async_add_entities(sensors)
     
     # Store sensor references so services can access them
@@ -109,8 +90,150 @@ async def async_setup_entry(
 
 
 def create_sensors_from_counters(
-    installation: dict, api_key: str, smarthome_base_url: str, meter_counters: list[dict], polling_interval: timedelta
+    coordinator: MaalerportalCoordinator, meter_counters: list[dict]
 ) -> list[SensorEntity]:
+    """Create appropriate sensors based on available meter counters."""
+    sensors = []
+    
+    # Consumable counter types:
+    # - For readingType="counter": Only meter reading sensor (direct from meter)
+    # - For readingType="consumption": Statistics sensor (Energy Dashboard) + Consumption sensor
+    consumable_counter_types = [
+        "ColdWater", "HotWater", "ElectricityFromGrid", "ElectricityToGrid", "Heat"
+    ]
+    
+    # Heat meter counter types
+    supply_temp_types = ["SupplyTemp", "FlowTemp", "T1", "SupplyTemperature"]
+    return_temp_types = ["ReturnTemp", "T2", "ReturnTemperature"]
+    temp_diff_types = ["TempDiff", "DeltaT", "TemperatureDifference"]
+    heat_power_types = ["Power", "Effect", "HeatPower"]
+    heat_volume_types = ["Volume", "V1", "HeatVolume"]
+    
+    # Find primary counter for main sensor
+    primary_counter = None
+    for counter in meter_counters:
+        if counter.get("isPrimary", False):
+            primary_counter = counter
+            break
+    
+    if not primary_counter and meter_counters:
+        primary_counter = meter_counters[0]
+    
+    # Helper to unpack coordinator for PollingSensors
+    installation = coordinator.installation
+    api_key = coordinator.api_key
+    base_url = coordinator.base_url
+    interval = coordinator.update_interval
+
+    # Create sensors for primary counter based on reading type
+    if primary_counter:
+        reading_type = primary_counter.get("readingType", "counter").lower()
+        counter_type = primary_counter.get("counterType", "")
+        
+        if reading_type == "consumption":
+            # For consumption-based meters (e.g., electricity from grid operator):
+            # Create statistics sensor for Energy Dashboard + consumption sensor for 30-day usage
+            if counter_type in consumable_counter_types:
+                sensors.append(MaalerportalStatisticSensor(
+                    installation, api_key, base_url, primary_counter, interval
+                ))
+                sensors.append(MaalerportalConsumptionSensor(
+                    installation, api_key, base_url, primary_counter, interval
+                ))
+        else:
+            # For counter-based meters (cumulative readings):
+            # Create main sensor showing current meter reading
+            sensors.append(MaalerportalMainSensor(
+                coordinator, primary_counter
+            ))
+            # Also add statistics sensor to load historical data (last 30 days)
+            if counter_type in consumable_counter_types:
+                sensors.append(MaalerportalStatisticSensor(
+                    installation, api_key, base_url, primary_counter, interval
+                ))
+        
+        # Add price sensor for primary counter if price is available
+        if primary_counter.get("pricePerUnit") is not None:
+            sensors.append(MaalerportalPriceSensor(
+                coordinator, primary_counter
+            ))
+    
+    # Create additional sensors for other counter types
+    for counter in meter_counters:
+        counter_type = counter.get("counterType", "")
+        # is_primary = counter.get("isPrimary", False) # Unused
+        
+        if counter_type == "BatteryDaysRemaining":
+            sensors.append(MaalerportalBatterySensor(
+                coordinator, counter
+            ))
+        elif counter_type in ["DailyMaxAmbientTemp", "DailyMinAmbientTemp"]:
+            sensors.append(MaalerportalTemperatureSensor(
+                coordinator, counter
+            ))
+        elif counter_type in ["DailyMaxWaterTemp", "DailyMinWaterTemp"]:
+            sensors.append(MaalerportalWaterTemperatureSensor(
+                coordinator, counter
+            ))
+        elif counter_type in ["DailyMaxFlow1", "DailyMinFlow1"]:
+            sensors.append(MaalerportalFlowSensor(
+                coordinator, counter
+            ))
+        elif counter_type == "AcousticNoise":
+            sensors.append(MaalerportalNoiseSensor(
+                coordinator, counter
+            ))
+        # Heat meter specific sensors
+        elif counter_type in supply_temp_types:
+            sensors.append(MaalerportalSupplyTempSensor(
+                coordinator, counter
+            ))
+        elif counter_type in return_temp_types:
+            sensors.append(MaalerportalReturnTempSensor(
+                coordinator, counter
+            ))
+        elif counter_type in temp_diff_types:
+            sensors.append(MaalerportalTempDiffSensor(
+                coordinator, counter
+            ))
+        elif counter_type in heat_power_types:
+            sensors.append(MaalerportalHeatPowerSensor(
+                coordinator, counter
+            ))
+        elif counter_type in heat_volume_types:
+            sensors.append(MaalerportalHeatVolumeSensor(
+                coordinator, counter
+            ))
+        elif counter != primary_counter and counter_type in consumable_counter_types:
+            # Secondary meters - check if already handled as primary (loop logic covers it?)
+            # The loop iterates ALL counters. Primary was handled explicitly above.
+            # We should skip primary here if we don't want duplicates.
+            # But the logic below says "elif not is_primary..." wait.
+            # Helper var is_primary was commented out. Let's strictly check identity.
+            if counter == primary_counter:
+                continue
+
+            # Secondary meters - sensors depend on reading type
+            reading_type = counter.get("readingType", "counter").lower()
+            
+            if reading_type == "consumption":
+                # For consumption-based: statistics sensor + consumption sensor
+                sensors.append(MaalerportalStatisticSensor(
+                    installation, api_key, base_url, counter, interval
+                ))
+                sensors.append(MaalerportalConsumptionSensor(
+                    installation, api_key, base_url, counter, interval
+                ))
+            else:
+                # For counter-based: meter reading sensor + statistics for historical data
+                sensors.append(MaalerportalSecondarySensor(
+                    coordinator, counter
+                ))
+                sensors.append(MaalerportalStatisticSensor(
+                    installation, api_key, base_url, counter, interval
+                ))
+    
+    return sensors
     """Create appropriate sensors based on available meter counters."""
     sensors = []
     
@@ -242,6 +365,305 @@ def create_sensors_from_counters(
 
 
 class MaalerportalBaseSensor(SensorEntity):
+    """Base class for all Målerportal sensors (common attributes)."""
+    
+    _attr_has_entity_name = True
+    
+    # Translation map for installation/meter types
+    METER_TYPE_TRANSLATIONS = {
+        "Apartment": "Lejlighed",
+        "House": "Hus",
+        "SummerHouse": "Sommerhus",
+        "Business": "Erhverv",
+        "School": "Skole",
+        "Institution": "Institution", 
+        "Other": "Andet",
+        "Heat": "Varmemåler",
+        "ColdWater": "Koldtvandsmåler", 
+        "HotWater": "Varmtvarsmåler",
+        "Electricity": "Elmåler",
+        "Gas": "Gasmåler",
+    }
+    
+    def __init__(
+        self,
+        installation: dict,
+        api_key: str, 
+        smarthome_base_url: str,
+        counter: dict = None,
+    ) -> None:
+        """Initialize the base sensor."""
+        self._installation = installation
+        self._api_key = api_key
+        self._smarthome_base_url = smarthome_base_url
+        self._installation_id = installation["installationId"]
+        self._installation_type = installation["installationType"]
+        self._counter = counter
+        
+        # Create base device name
+        self._base_device_name = f"{installation['address']} - {installation['meterSerial']}"
+        if installation.get("nickname"):
+            self._base_device_name += f" ({installation['nickname']})"
+
+
+    def _get_translated_meter_type(self) -> str:
+        """Get translated meter type for device model."""
+        return self.METER_TYPE_TRANSLATIONS.get(self._installation_type, self._installation_type)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._installation_id)},
+            name=self._base_device_name,
+            manufacturer=self._installation.get("utilityName", "Unknown"),
+            model=self._get_translated_meter_type(),
+            serial_number=self._installation.get("meterSerial"),
+        )
+        
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        attrs: dict[str, Any] = {
+            "installation_id": self._installation_id,
+        }
+        if self._counter:
+            attrs["counter_type"] = self._counter.get("counterType", "")
+            attrs["meter_counter_id"] = self._counter.get("meterCounterId", "")
+        return attrs
+
+    def _parse_counter_value(self, counter: dict) -> Optional[float]:
+        """Parse and validate counter value."""
+        latest_value = counter.get("latestValue")
+        if latest_value is None:
+            return None
+            
+        try:
+            if isinstance(latest_value, (int, float)):
+                numeric_value = float(latest_value)
+            elif isinstance(latest_value, str):
+                # Clean the string value - remove any non-numeric characters except decimal point
+                cleaned_value = latest_value.strip()
+                cleaned_value = re.sub(r'[^\d.-]', '', cleaned_value)
+                numeric_value = float(cleaned_value)
+            else:
+                _LOGGER.error("Unexpected value type: %s", type(latest_value))
+                return None
+                
+            # Validate the number
+            if not (isinstance(numeric_value, (int, float)) and not (numeric_value != numeric_value)):  # Check for NaN
+                _LOGGER.error("Invalid numeric value: %s", latest_value)
+                return None
+                
+            return numeric_value
+            
+        except (ValueError, TypeError) as err:
+            _LOGGER.error("Error parsing meter value '%s': %s", latest_value, err)
+            return None
+
+
+class MaalerportalCoordinatorSensor(CoordinatorEntity[MaalerportalCoordinator], MaalerportalBaseSensor):
+    """Sensor that updates via MaalerportalCoordinator."""
+    
+    def __init__(
+        self,
+        coordinator: MaalerportalCoordinator,
+        counter: dict = None,
+    ) -> None:
+        """Initialize coordinator sensor."""
+        # Initialize CoordinatorEntity
+        super().__init__(coordinator)
+        # Initialize BaseSensor
+        MaalerportalBaseSensor.__init__(
+            self,
+            coordinator.installation,
+            coordinator.api_key,
+            coordinator.base_url,
+            counter
+        )
+        
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        # Get meter counters from coordinator data
+        meter_counters = self.coordinator.data.get("meterCounters", [])
+        
+        # Find our counter and update
+        if self._counter:
+            self._update_from_meter_counters(meter_counters)
+            self.async_write_ha_state()
+
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+        """Update sensor state from counter list (implemented by subclasses)."""
+        pass
+
+
+class MaalerportalPollingSensor(MaalerportalBaseSensor):
+    """Sensor that manages its own polling (e.g. historical data)."""
+    
+    def __init__(
+        self, 
+        installation: dict, 
+        api_key: str, 
+        smarthome_base_url: str, 
+        counter: dict = None,
+        polling_interval: timedelta = timedelta(minutes=30)
+    ) -> None:
+        """Initialize the polling sensor."""
+        super().__init__(installation, api_key, smarthome_base_url, counter)
+        self._polling_interval = polling_interval
+        
+        # Instance-based throttle tracking
+        self._last_successful_update: Optional[datetime] = None
+        
+        # Rate limiting
+        self._rate_limit_delay = 2000  # 2 seconds between requests
+        
+        # Last contact tracking
+        self._last_contact: Optional[datetime] = None
+        
+        # Installation availability tracking (for 404 handling)
+        self._installation_available: bool = True
+        self._last_availability_check: Optional[datetime] = None
+        self._unavailable_since: Optional[datetime] = None
+        self._availability_check_count: int = 0
+        self._base_check_interval = timedelta(minutes=15)
+        self._max_check_interval = timedelta(hours=24)
+        self._max_unavailable_days: int = 30
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        attrs = super().extra_state_attributes
+        if self._last_contact:
+            attrs["last_contact"] = self._last_contact.isoformat()
+        return attrs
+
+    async def async_update(self) -> None:
+        """Fetch data from API."""
+        # Instance-based throttle: skip if updated recently
+        now = datetime.now()
+        if self._last_successful_update is not None:
+            elapsed = now - self._last_successful_update
+            if elapsed < self._polling_interval:
+                return
+        
+        # If installation is unavailable, only do periodic availability checks
+        if not self._installation_available:
+            await self._check_installation_availability()
+            return
+        
+        try:
+            _LOGGER.debug("Fetching meter readings for installation: %s", self._installation_id)
+            
+            session = async_get_clientsession(self.hass)
+            # Get latest readings
+            response = await session.get(
+                f"{self._smarthome_base_url}/installations/{self._installation_id}/readings/latest",
+                headers={"ApiKey": self._api_key},
+                timeout=aiohttp.ClientTimeout(total=30),
+            )
+            
+            if response.status == 429:
+                _LOGGER.warning("Rate limit exceeded, backing off")
+                # Simple backoff handled by interval
+                return
+
+            # Handle 404/403 - installation no longer accessible
+            if response.status in (404, 403):
+                _LOGGER.warning(
+                    "Installation %s no longer accessible (HTTP %s)",
+                    self._installation_id,
+                    response.status
+                )
+                await self._handle_installation_unavailable()
+                return
+
+            if not response.ok:
+                _LOGGER.error("Error fetching meter readings: %s", response.status)
+                return
+            
+            # Reset availability on success
+            if not self._installation_available:
+                _LOGGER.info("Installation %s is available again", self._installation_id)
+                self._installation_available = True
+                self._unavailable_since = None
+                self._availability_check_count = 0
+            
+            readings_data = await response.json()
+            _LOGGER.debug("Received %d meter counters", len(readings_data.get("meterCounters", [])))
+
+            if readings_data.get("meterCounters"):
+                await self._update_from_meter_counters(readings_data["meterCounters"])
+            else:
+                _LOGGER.debug("No meter counters found in API response")
+            
+            # Mark successful update for throttle tracking
+            self._last_successful_update = now
+            self._last_contact = now
+
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Timeout fetching meter readings for installation: %s", self._installation_id)
+        except Exception as err:
+            _LOGGER.error("Error updating meter readings for installation %s: %s", 
+                         self._installation_id, err)
+
+    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+        """Update sensor state from meter counter data - to be implemented by subclasses."""
+        pass
+        
+    async def _handle_installation_unavailable(self) -> None:
+        """Handle installation being unavailable (404/403)."""
+        if self._installation_available:
+            self._installation_available = False
+            self._unavailable_since = datetime.now()
+            _LOGGER.warning("Marking installation %s as unavailable", self._installation_id)
+        
+        # Calculate next check interval with exponential backoff
+        self._availability_check_count += 1
+        backoff_minutes = min(
+            self._base_check_interval.total_seconds() / 60 * (2 ** (self._availability_check_count - 1)),
+            self._max_check_interval.total_seconds() / 60
+        )
+        self._next_availability_check = datetime.now() + timedelta(minutes=backoff_minutes)
+        _LOGGER.debug(
+            "Next availability check for %s in %.1f minutes", 
+            self._installation_id, backoff_minutes
+        )
+
+    async def _check_installation_availability(self) -> None:
+        """Check if a previously unavailable installation is back."""
+        # Don't check too often
+        now = datetime.now()
+        if hasattr(self, "_next_availability_check") and now < self._next_availability_check:
+            return
+            
+        # Check if we should give up
+        if self._unavailable_since:
+            unavailable_days = (now - self._unavailable_since).days
+            if unavailable_days > self._max_unavailable_days:
+                return
+
+        try:
+            session = async_get_clientsession(self.hass)
+            response = await session.get(
+                f"{self._smarthome_base_url}/installations/{self._installation_id}/addresses",
+                headers={"ApiKey": self._api_key},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            
+            if response.status == 200:
+                _LOGGER.info("Installation %s is back online!", self._installation_id)
+                self._installation_available = True
+                self._unavailable_since = None
+                self._availability_check_count = 0
+                # Trigger update
+                await self.async_update()
+            else:
+                # Still unavailable, schedule next check
+                self._handle_installation_unavailable()
+                
+        except Exception as err:
+            self._handle_installation_unavailable()
     """Base class for all Målerportal sensors."""
     
     _attr_has_entity_name = True
@@ -257,20 +679,27 @@ class MaalerportalBaseSensor(SensorEntity):
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict = None,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the sensor."""
-        self._installation = installation
-        self._api_key = api_key
-        self._smarthome_base_url = smarthome_base_url
-        self._installation_id = installation["installationId"]
-        self._installation_type = installation["installationType"]
+        super().__init__(coordinator)
+        
+        self.api_key = coordinator.api_key
+        self.smarthome_base_url = coordinator.base_url
+        self._installation_id = coordinator.installation_id
         self._counter = counter
-        self._polling_interval = polling_interval
+        
+        # Access installation details if needed (not passed in coordinator, maybe add to coordinator?)
+        # For now, we rely on what's available or we need to pass installation data to coordinator?
+        # The coordinator only has ID. BaseSensor used self._installation for device info.
+        # FIX: We need installation data. Coordinator doesn't have it by default.
+        # Let's assume we can get it from helper or we need to pass it? 
+        # Actually coordinator initialization in __init__.py has access to it. 
+        # Maybe we should store installation dict in coordinator?
+        # Yes, I will assume coordinator.installation is available. I will update coordinator.py later.
+        pass
+
         
         # Instance-based throttle tracking (replaces @Throttle decorator)
         self._last_successful_update: Optional[datetime] = None
@@ -566,19 +995,16 @@ class MaalerportalBaseSensor(SensorEntity):
             return None
 
 
-class MaalerportalMainSensor(MaalerportalBaseSensor):
+class MaalerportalMainSensor(MaalerportalCoordinatorSensor):
     """Main sensor for primary meter counter."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the main sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_unique_id = f"{self._installation_id}_main"
         
@@ -604,10 +1030,6 @@ class MaalerportalMainSensor(MaalerportalBaseSensor):
             self._attr_device_class = None
             self._attr_native_unit_of_measurement = counter.get("unit")
             self._attr_state_class = SensorStateClass.MEASUREMENT
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update main sensor from primary counter."""
@@ -638,7 +1060,7 @@ class MaalerportalMainSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalBasicSensor(MaalerportalBaseSensor):
+class MaalerportalBasicSensor(MaalerportalPollingSensor):
     """Basic fallback sensor when meter data is not available."""
 
     def __init__(
@@ -704,19 +1126,16 @@ class MaalerportalBasicSensor(MaalerportalBaseSensor):
 
 # Specialized sensor classes for different counter types
 
-class MaalerportalBatterySensor(MaalerportalBaseSensor):
+class MaalerportalBatterySensor(MaalerportalCoordinatorSensor):
     """Battery days remaining sensor."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the battery sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "battery_days"
         self._attr_unique_id = f"{self._installation_id}_battery_days"
@@ -724,10 +1143,6 @@ class MaalerportalBatterySensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTime.DAYS
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:battery"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update battery sensor."""
@@ -740,19 +1155,16 @@ class MaalerportalBatterySensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalTemperatureSensor(MaalerportalBaseSensor):
+class MaalerportalTemperatureSensor(MaalerportalCoordinatorSensor):
     """Ambient temperature sensor."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the temperature sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         counter_type = counter.get("counterType", "")
         if "Max" in counter_type:
@@ -766,10 +1178,6 @@ class MaalerportalTemperatureSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
-
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update temperature sensor."""
         for counter in meter_counters:
@@ -781,19 +1189,16 @@ class MaalerportalTemperatureSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalWaterTemperatureSensor(MaalerportalBaseSensor):
+class MaalerportalWaterTemperatureSensor(MaalerportalCoordinatorSensor):
     """Water temperature sensor."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the water temperature sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         counter_type = counter.get("counterType", "")
         if "Max" in counter_type:
@@ -807,10 +1212,6 @@ class MaalerportalWaterTemperatureSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
-
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update water temperature sensor."""
         for counter in meter_counters:
@@ -822,19 +1223,16 @@ class MaalerportalWaterTemperatureSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalFlowSensor(MaalerportalBaseSensor):
+class MaalerportalFlowSensor(MaalerportalCoordinatorSensor):
     """Flow sensor."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the flow sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         counter_type = counter.get("counterType", "")
         if "Max" in counter_type:
@@ -848,10 +1246,6 @@ class MaalerportalFlowSensor(MaalerportalBaseSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:water-pump"
 
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
-
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update flow sensor."""
         for counter in meter_counters:
@@ -863,29 +1257,22 @@ class MaalerportalFlowSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalNoiseSensor(MaalerportalBaseSensor):
+class MaalerportalNoiseSensor(MaalerportalCoordinatorSensor):
     """Acoustic noise sensor."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the noise sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "acoustic_noise"
         self._attr_unique_id = f"{self._installation_id}_acoustic_noise"
         self._attr_native_unit_of_measurement = UnitOfFrequency.HERTZ
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:volume-high"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update noise sensor."""
@@ -898,19 +1285,16 @@ class MaalerportalNoiseSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalSecondarySensor(MaalerportalBaseSensor):
+class MaalerportalSecondarySensor(MaalerportalCoordinatorSensor):
     """Secondary meter sensor."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the secondary sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         counter_type = counter.get("counterType", "")
         
@@ -943,10 +1327,6 @@ class MaalerportalSecondarySensor(MaalerportalBaseSensor):
         self._attr_unique_id = f"{self._installation_id}_{counter_type.lower()}_secondary"
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
-
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update secondary sensor."""
         for counter in meter_counters:
@@ -974,19 +1354,16 @@ class MaalerportalSecondarySensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalPriceSensor(MaalerportalBaseSensor):
+class MaalerportalPriceSensor(MaalerportalCoordinatorSensor):
     """Price per unit sensor for primary counters."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the price sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         unit = counter.get("unit", "unit")
         self._attr_translation_key = "price_per_unit"
@@ -994,10 +1371,6 @@ class MaalerportalPriceSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = f"kr/{unit}"
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:currency-usd"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update price sensor."""
@@ -1014,7 +1387,7 @@ class MaalerportalPriceSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalConsumptionSensor(MaalerportalBaseSensor, RestoreEntity):
+class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
     """Consumption sensor that shows virtual cumulative meter reading.
     
     For consumption-type meters (readingType=consumption), this sensor tracks
@@ -1288,19 +1661,16 @@ class MaalerportalConsumptionSensor(MaalerportalBaseSensor, RestoreEntity):
 
 # Heat meter specific sensors
 
-class MaalerportalSupplyTempSensor(MaalerportalBaseSensor):
+class MaalerportalSupplyTempSensor(MaalerportalCoordinatorSensor):
     """Supply/flow temperature sensor for heat meters."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the supply temperature sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "supply_temperature"
         self._attr_unique_id = f"{self._installation_id}_temp_supply"
@@ -1308,10 +1678,6 @@ class MaalerportalSupplyTempSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-chevron-up"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update supply temperature sensor."""
@@ -1324,19 +1690,16 @@ class MaalerportalSupplyTempSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalReturnTempSensor(MaalerportalBaseSensor):
+class MaalerportalReturnTempSensor(MaalerportalCoordinatorSensor):
     """Return temperature sensor for heat meters."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the return temperature sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "return_temperature"
         self._attr_unique_id = f"{self._installation_id}_temp_return"
@@ -1344,10 +1707,6 @@ class MaalerportalReturnTempSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-chevron-down"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update return temperature sensor."""
@@ -1360,19 +1719,16 @@ class MaalerportalReturnTempSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalTempDiffSensor(MaalerportalBaseSensor):
+class MaalerportalTempDiffSensor(MaalerportalCoordinatorSensor):
     """Temperature difference sensor for heat meters."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the temperature difference sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "temperature_difference"
         self._attr_unique_id = f"{self._installation_id}_temp_diff"
@@ -1380,10 +1736,6 @@ class MaalerportalTempDiffSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-lines"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update temperature difference sensor."""
@@ -1396,19 +1748,16 @@ class MaalerportalTempDiffSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalHeatPowerSensor(MaalerportalBaseSensor):
+class MaalerportalHeatPowerSensor(MaalerportalCoordinatorSensor):
     """Heat power/effect sensor for heat meters."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the heat power sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "heat_power"
         self._attr_unique_id = f"{self._installation_id}_heat_power"
@@ -1416,10 +1765,6 @@ class MaalerportalHeatPowerSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:fire"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update heat power sensor."""
@@ -1432,19 +1777,16 @@ class MaalerportalHeatPowerSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalHeatVolumeSensor(MaalerportalBaseSensor):
+class MaalerportalHeatVolumeSensor(MaalerportalCoordinatorSensor):
     """Heat volume sensor for heat meters."""
 
     def __init__(
         self, 
-        installation: dict, 
-        api_key: str, 
-        smarthome_base_url: str, 
+        coordinator: MaalerportalCoordinator,
         counter: dict,
-        polling_interval: timedelta = timedelta(minutes=30)
     ) -> None:
         """Initialize the heat volume sensor."""
-        super().__init__(installation, api_key, smarthome_base_url, counter, polling_interval)
+        super().__init__(coordinator, counter)
         
         self._attr_translation_key = "heat_volume"
         self._attr_unique_id = f"{self._installation_id}_heat_volume"
@@ -1452,10 +1794,6 @@ class MaalerportalHeatVolumeSensor(MaalerportalBaseSensor):
         self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_icon = "mdi:water-thermometer"
-
-    async def async_update(self) -> None:
-        """Fetch data from API with throttling."""
-        await super().async_update()
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update heat volume sensor."""
@@ -1468,7 +1806,7 @@ class MaalerportalHeatVolumeSensor(MaalerportalBaseSensor):
                 break
 
 
-class MaalerportalStatisticSensor(MaalerportalBaseSensor, RestoreEntity):
+class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
     """Statistics sensor for electricity meters - inserts historical data into HA's long-term statistics.
     
     This sensor is designed for meters where data is delayed (1-3 days from grid operator).

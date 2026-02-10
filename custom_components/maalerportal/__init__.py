@@ -11,7 +11,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
+from datetime import timedelta
+from .const import DOMAIN, DEFAULT_POLLING_INTERVAL
+from .coordinator import MaalerportalCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,7 +49,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "email": entry.data.get("email", ""),
         "sensors": [],  # Will be populated by sensor platform
         "history_fetched_days": entry.options.get("history_fetched_days", 30),
+        "coordinators": {},  # Will store coordinators by installation_id
     }
+    
+    # Initialize coordinators for each installation
+    polling_interval_minutes = entry.options.get("polling_interval", DEFAULT_POLLING_INTERVAL)
+    polling_interval = timedelta(minutes=polling_interval_minutes)
+    
+    for installation in entry.data["installations"]:
+        installation_id = installation["installationId"]
+        coordinator = MaalerportalCoordinator(
+            hass,
+            entry.data["api_key"],
+            entry.data["smarthome_base_url"],
+            installation,
+            polling_interval,
+        )
+        
+        # Perform initial fetch
+        await coordinator.async_config_entry_first_refresh()
+        
+        hass.data[DOMAIN][entry.entry_id]["coordinators"][installation_id] = coordinator
     
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
