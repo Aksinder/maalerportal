@@ -23,7 +23,13 @@ def bypass_auth_fixture():
 @pytest.fixture(autouse=True)
 def mock_recorder():
     """Mock recorder."""
-    with patch("homeassistant.components.recorder.get_instance"), \
+    with patch("homeassistant.components.recorder.get_instance") as mock_get_instance, \
          patch("homeassistant.components.recorder.statistics.get_last_statistics"), \
          patch("homeassistant.components.recorder.statistics.async_import_statistics"):
+        
+        # Configure instance to support awaited methods
+        mock_instance = MagicMock()
+        mock_instance.async_add_executor_job = AsyncMock()
+        mock_get_instance.return_value = mock_instance
+        
         yield
