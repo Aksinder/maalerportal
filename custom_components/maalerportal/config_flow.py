@@ -120,7 +120,7 @@ async def attempt_login(
     # Try to parse response
     try:
         response_data = await login_response.json()
-    except Exception:
+    except (ValueError, aiohttp.ContentTypeError):
         response_data = {}
     
     # Check if we got a token (success)
@@ -314,6 +314,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         jwt_token = result["token"]
                         api_key = await get_api_key(session, jwt_token)
                         await test_api_connection(session, api_key)
+                        
+                        # Clear password from memory after successful use
+                        self._password = ""
                         
                         self.context.update({"apikey": api_key})
                         return await self.async_step_entity_selection()

@@ -70,7 +70,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 for entity_entry in entities:
                     # Filter by installation_id if provided
                     if installation_id:
-                        if installation_id not in entity_entry.unique_id:
+                        if not entity_entry.unique_id.startswith(f"{installation_id}_"):
                             continue
                     
                     # Schedule an update for this entity
