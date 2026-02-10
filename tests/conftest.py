@@ -6,7 +6,7 @@ from unittest.mock import patch
 # Usually to enable custom integrations, you need to add this fixture
 # or use pytest-homeassistant-custom-component.
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
+async def auto_enable_custom_integrations(enable_custom_integrations):
     """Enable custom integrations defined in the test dir."""
     yield
 
