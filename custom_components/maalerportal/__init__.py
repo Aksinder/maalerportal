@@ -43,7 +43,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Store the configuration data for sensors to use
     hass.data[DOMAIN][entry.entry_id] = {
-        "api_key": entry.data["api_key"],
         "smarthome_base_url": entry.data["smarthome_base_url"],
         "installations": entry.data["installations"],
         "email": entry.data.get("email", ""),
