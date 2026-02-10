@@ -131,7 +131,7 @@
   },
   "config": {
     "abort": {
-      "already_configured": "Laite on jo määritetty"
+      "already_configured": "Tämä tili on jo määritetty"
     },
     "error": {
       "cannot_connect": "Yhteyden muodostaminen epäonnistui",

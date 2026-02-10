@@ -26,6 +26,12 @@ Guide docker: https://www.simplysmart.house/blog/how-to-install-HACS-on-home-ass
 - Select which meters you want to add to Home Assistant (you can always add more later)
 - **Wait 1-2 minutes** for the integration to fetch your historical meter data
 
+## Multiple Accounts
+
+If you have meters across different Målerportal accounts, you can add the integration multiple times — once per account. Each account will appear as a separate entry in **Settings → Devices & Services**, labeled with the account email.
+
+Simply repeat the installation steps above with a different email address.
+
 **Note:** The first data fetch may take a few minutes as it retrieves up to 30 days of historical readings for the Energy Dashboard.
  
 ## Sensor Types

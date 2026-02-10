@@ -246,7 +246,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             # User only has passkey - not supported in HA
                             errors["base"] = "passkey_only"
                         else:
-                            # User has password - proceed to password step
+                            # User has password - set unique ID and check for duplicates
+                            await self.async_set_unique_id(self._email.lower())
+                            self._abort_if_unique_id_configured()
+                            # Proceed to password step
                             return await self.async_step_password()
                             
                 except aiohttp.ClientError:
@@ -484,7 +487,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         break
             save_data["api_key"] = self.context["apikey"]
             save_data["smarthome_base_url"] = SMARTHOME_BASE_URL
-            return self.async_create_entry(title="Målere", data=save_data)
+            save_data["email"] = self._email
+            return self.async_create_entry(title=f"Målerportal ({self._email})", data=save_data)
 
         entities_with_labels: dict[str, str] = {}
         try:

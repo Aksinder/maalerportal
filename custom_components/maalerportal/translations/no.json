@@ -131,7 +131,7 @@
   },
   "config": {
     "abort": {
-      "already_configured": "Enheten er allerede konfigurert"
+      "already_configured": "Denne kontoen er allerede konfigurert"
     },
     "error": {
       "cannot_connect": "Kunne ikke koble til",

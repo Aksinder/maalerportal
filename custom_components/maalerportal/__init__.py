@@ -41,6 +41,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api_key": entry.data["api_key"],
         "smarthome_base_url": entry.data["smarthome_base_url"],
         "installations": entry.data["installations"],
+        "email": entry.data.get("email", ""),
         "sensors": [],  # Will be populated by sensor platform
     }
     
@@ -57,26 +58,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             
             _LOGGER.debug("Refresh service called with installation_id: %s", installation_id)
             
-            # Find all sensors and refresh them
+            # Find all sensors across ALL config entries and refresh them
             entity_registry = er.async_get(hass)
-            entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
-            
-            for entity_entry in entities:
-                # Get the entity state to check if it belongs to the right installation
-                if installation_id:
-                    # Filter by installation_id if provided
-                    if installation_id not in entity_entry.unique_id:
-                        continue
+            for eid in hass.data[DOMAIN]:
+                entities = er.async_entries_for_config_entry(entity_registry, eid)
                 
-                # Schedule an update for this entity
-                hass.async_create_task(
-                    hass.services.async_call(
-                        "homeassistant",
-                        "update_entity",
-                        {"entity_id": entity_entry.entity_id},
+                for entity_entry in entities:
+                    # Filter by installation_id if provided
+                    if installation_id:
+                        if installation_id not in entity_entry.unique_id:
+                            continue
+                    
+                    # Schedule an update for this entity
+                    hass.async_create_task(
+                        hass.services.async_call(
+                            "homeassistant",
+                            "update_entity",
+                            {"entity_id": entity_entry.entity_id},
+                        )
                     )
-                )
-                _LOGGER.debug("Scheduled refresh for entity: %s", entity_entry.entity_id)
+                    _LOGGER.debug("Scheduled refresh for entity: %s", entity_entry.entity_id)
 
         hass.services.async_register(
             DOMAIN,

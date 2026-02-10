@@ -131,7 +131,7 @@
   },
   "config": {
     "abort": {
-      "already_configured": "Gerät ist bereits konfiguriert"
+      "already_configured": "Dieses Konto ist bereits konfiguriert"
     },
     "error": {
       "cannot_connect": "Verbindung fehlgeschlagen",
