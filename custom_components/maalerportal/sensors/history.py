@@ -8,16 +8,10 @@ import re
 from typing import Any, Optional
 
 import aiohttp
-from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.models import (
-    StatisticData,
-    StatisticMetaData,
-    StatisticMeanType,
-)
-from homeassistant.components.recorder.statistics import (
-    async_import_statistics,
-    get_last_statistics,
-)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from homeassistant.components.recorder.models import StatisticData
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
@@ -477,6 +471,16 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
 
     async def _async_update_statistics(self) -> None:
         """Fetch historical data and insert into Home Assistant statistics."""
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.models import (
+            StatisticData,
+            StatisticMetaData,
+            StatisticMeanType,
+        )
+        from homeassistant.components.recorder.statistics import (
+            async_import_statistics,
+            get_last_statistics,
+        )
         try:
             # Ensure we have a statistic_id (entity_id) set
             if not self._statistic_id:
@@ -765,6 +769,13 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         if not self._statistic_id:
             _LOGGER.warning("Cannot fetch older history: entity_id not set yet")
             return 0
+            
+        from homeassistant.components.recorder.models import (
+            StatisticData,
+            StatisticMetaData,
+            StatisticMeanType,
+        )
+        from homeassistant.components.recorder.statistics import async_import_statistics
         
         counter_id = self._counter.get("meterCounterId")
         if not counter_id:

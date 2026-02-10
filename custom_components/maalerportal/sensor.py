@@ -6,7 +6,7 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity import SensorEntity
+from homeassistant.components.sensor import SensorEntity
 
 from .const import DOMAIN, DEFAULT_POLLING_INTERVAL
 from .coordinator import MaalerportalCoordinator
