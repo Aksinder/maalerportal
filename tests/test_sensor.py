@@ -20,9 +20,11 @@ def mock_aiohttp():
         mock_response.ok = True
         mock_response.json.return_value = {"readings": []}
         
-        # Configure context managers
-        session.get.return_value.__aenter__.return_value = mock_response
-        session.post.return_value.__aenter__.return_value = mock_response
+        # Configure context managers to be awaitable
+        session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+        session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+        session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+        session.post.return_value.__aexit__ = AsyncMock(return_value=None)
         
         mock_session.return_value = session
         yield mock_session
