@@ -1,17 +1,22 @@
 {
   "domain": "maalerportal",
   "name": "M\u00e5lerportal",
-  "codeowners": ["@maalerportal"],
+  "codeowners": [
+    "@maalerportal",
+    "@Aksinder"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/maalerportal/maalerportal",
   "issue_tracker": "https://github.com/maalerportal/maalerportal/issues",
   "homekit": {},
   "iot_class": "cloud_polling",
-  "loggers": ["M\u00e5lerportal"],
+  "loggers": [
+    "M\u00e5lerportal"
+  ],
   "requirements": [],
   "ssdp": [],
   "zeroconf": [],
-  "version": "2.0.1",
+  "version": "2.1.0",
   "homeassistant": "2023.1.0"
 }

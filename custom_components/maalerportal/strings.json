@@ -192,8 +192,19 @@
     }
   },
   "options": {
+    "abort": {
+      "fetch_more_history_done": "Done! Historical data now covers the last {days} days. It may take a few minutes for the Energy Dashboard to update."
+    },
     "step": {
       "init": {
+        "title": "Målerportal options",
+        "description": "Currently covering {days} days of history. What would you like to do?",
+        "menu_options": {
+          "settings": "Settings",
+          "fetch_more_history": "Fetch 30 more days of history"
+        }
+      },
+      "settings": {
         "title": "Settings",
         "description": "Configure Målerportal integration settings",
         "data": {
@@ -215,6 +226,10 @@
           "description": "Optional. The installation ID to refresh. If not provided, all installations will be refreshed."
         }
       }
+    },
+    "fetch_more_history": {
+      "name": "Fetch more history",
+      "description": "Fetch 30 more days of historical meter data for the Energy Dashboard. Each call goes 30 days further back."
     }
   }
 }

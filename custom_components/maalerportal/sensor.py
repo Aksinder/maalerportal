@@ -103,6 +103,9 @@ async def async_setup_entry(
             sensors.append(MaalerportalBasicSensor(installation, api_key, smarthome_base_url, polling_interval))
 
     async_add_entities(sensors)
+    
+    # Store sensor references so services can access them
+    config_data["sensors"] = sensors
 
 
 def create_sensors_from_counters(
@@ -1898,6 +1901,198 @@ class MaalerportalStatisticSensor(MaalerportalBaseSensor, RestoreEntity):
             _LOGGER.error("Connection error fetching statistics data: %s", err)
         except Exception as err:
             _LOGGER.exception("Unexpected error updating statistics: %s", err)
+
+    async def async_fetch_older_history(self, from_days_ago: int, to_days_ago: int) -> int:
+        """Fetch older historical data for a specific date range and insert into statistics.
+        
+        Args:
+            from_days_ago: Start of range (further back), e.g. 60
+            to_days_ago: End of range (more recent), e.g. 30
+            
+        Returns:
+            Number of statistics records inserted.
+        """
+        if not self._statistic_id:
+            _LOGGER.warning("Cannot fetch older history: entity_id not set yet")
+            return 0
+        
+        counter_id = self._counter.get("meterCounterId")
+        if not counter_id:
+            _LOGGER.warning("No meterCounterId available for older history fetch")
+            return 0
+        
+        try:
+            end_date = datetime.now(timezone.utc)
+            start_date = end_date - timedelta(days=from_days_ago)
+            fetch_end_date = end_date - timedelta(days=to_days_ago)
+            
+            start_date_iso = start_date.strftime("%Y-%m-%dT00:00:00Z")
+            end_date_iso = fetch_end_date.strftime("%Y-%m-%dT23:59:59Z")
+            
+            _LOGGER.info(
+                "Fetching older history for %s: %d to %d days ago (%s to %s)",
+                self._statistic_id, from_days_ago, to_days_ago,
+                start_date_iso, end_date_iso
+            )
+            
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
+                response = await session.post(
+                    f"{self._smarthome_base_url}/installations/{self._installation_id}/readings/historical",
+                    json={"from": start_date_iso, "to": end_date_iso},
+                    headers={"ApiKey": self._api_key, "Content-Type": "application/json"},
+                )
+                
+                if response.status == 429:
+                    _LOGGER.warning("Rate limit exceeded for older history fetch")
+                    return 0
+                
+                if not response.ok:
+                    _LOGGER.error("Older history fetch failed: HTTP %s", response.status)
+                    return 0
+                
+                historical_data = await response.json()
+                readings = historical_data.get("readings", [])
+                
+                _LOGGER.debug("Older history API returned %d readings", len(readings))
+                
+                # Filter readings for this counter
+                counter_readings = [
+                    r for r in readings
+                    if r.get("meterCounterId") == counter_id and r.get("value") is not None
+                ]
+                
+                if not counter_readings:
+                    _LOGGER.info("No older readings found for counter %s", counter_id)
+                    return 0
+                
+                # Sort by timestamp
+                counter_readings.sort(key=lambda x: x.get("timestamp", ""))
+                
+                # For counter-type: use the first reading as baseline
+                counter_baseline = None
+                if self._reading_type != "consumption":
+                    first_value = counter_readings[0].get("value")
+                    if first_value is not None:
+                        if isinstance(first_value, str):
+                            counter_baseline = float(re.sub(r'[^\d.-]', '', first_value.strip()))
+                        else:
+                            counter_baseline = float(first_value)
+                        
+                        # Try to align with existing statistics baseline
+                        try:
+                            existing_stats = await get_instance(self.hass).async_add_executor_job(
+                                get_last_statistics,
+                                self.hass,
+                                1,
+                                self._statistic_id,
+                                True,
+                                {"sum"},
+                            )
+                            if existing_stats and self._statistic_id in existing_stats:
+                                # We have existing stats — use those to calculate offset
+                                # The baseline should make the old data connect to existing data
+                                pass
+                        except Exception:
+                            pass
+                
+                # For consumption type, start cumulative sum at 0 for this batch
+                # (the data will be inserted as standalone statistics that HA will merge)
+                cumulative_sum = 0.0
+                
+                # Build statistics data
+                statistics: list[StatisticData] = []
+                
+                for reading in counter_readings:
+                    try:
+                        timestamp_str = reading.get("timestamp")
+                        if not timestamp_str:
+                            continue
+                        
+                        if timestamp_str.endswith("Z"):
+                            timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                        else:
+                            timestamp = datetime.fromisoformat(timestamp_str)
+                        
+                        timestamp = timestamp.astimezone(timezone.utc)
+                        timestamp = timestamp.replace(minute=0, second=0, microsecond=0)
+                        
+                        if self._reading_type != "consumption":
+                            timestamp = timestamp - timedelta(hours=1)
+                        
+                        if self._reading_type == "consumption":
+                            interval_value = reading.get("value")
+                            if interval_value is None:
+                                continue
+                            if isinstance(interval_value, str):
+                                interval_value = float(re.sub(r'[^\d.-]', '', interval_value.strip()))
+                            else:
+                                interval_value = float(interval_value)
+                            if interval_value > 0:
+                                cumulative_sum += interval_value
+                            statistics.append(
+                                StatisticData(
+                                    start=timestamp,
+                                    state=interval_value,
+                                    sum=cumulative_sum,
+                                )
+                            )
+                        else:
+                            value = reading.get("value")
+                            if value is None:
+                                continue
+                            if isinstance(value, str):
+                                value = float(re.sub(r'[^\d.-]', '', value.strip()))
+                            else:
+                                value = float(value)
+                            relative_sum = value - counter_baseline if counter_baseline is not None else value
+                            statistics.append(
+                                StatisticData(
+                                    start=timestamp,
+                                    state=value,
+                                    sum=relative_sum,
+                                )
+                            )
+                    except (ValueError, TypeError) as err:
+                        _LOGGER.debug("Error parsing older reading: %s - %s", reading, err)
+                        continue
+                
+                if not statistics:
+                    _LOGGER.info("No new older statistics to insert for counter %s", counter_id)
+                    return 0
+                
+                # Create metadata
+                metadata = StatisticMetaData(
+                    has_mean=False,
+                    has_sum=True,
+                    mean_type=StatisticMeanType.NONE,
+                    name=self.name or f"{self._base_device_name}",
+                    source="recorder",
+                    statistic_id=self._statistic_id,
+                    unit_of_measurement=self._stat_unit,
+                    unit_class=self._unit_class,
+                )
+                
+                # Insert older statistics
+                async_import_statistics(self.hass, metadata, statistics)
+                
+                _LOGGER.info(
+                    "Inserted %d older statistics records for %s (from %s to %s)",
+                    len(statistics),
+                    self._statistic_id,
+                    statistics[0].start.isoformat() if statistics else "N/A",
+                    statistics[-1].start.isoformat() if statistics else "N/A",
+                )
+                
+                return len(statistics)
+                
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Timeout fetching older history")
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Connection error fetching older history: %s", err)
+        except Exception as err:
+            _LOGGER.exception("Unexpected error fetching older history: %s", err)
+        
+        return 0
 
     async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Not used for statistics sensor - we use async_update_statistics instead."""

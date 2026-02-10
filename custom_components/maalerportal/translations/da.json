@@ -192,8 +192,19 @@
     }
   },
   "options": {
+    "abort": {
+      "fetch_more_history_done": "Færdig! Historiske data dækker nu de sidste {days} dage. Det kan tage et par minutter, før Energi-dashboardet opdateres."
+    },
     "step": {
       "init": {
+        "title": "Målerportal-indstillinger",
+        "description": "Dækker i øjeblikket {days} dages historik. Hvad vil du gøre?",
+        "menu_options": {
+          "settings": "Indstillinger",
+          "fetch_more_history": "Hent 30 dage mere historik"
+        }
+      },
+      "settings": {
         "title": "Indstillinger",
         "description": "Konfigurer Målerportal-integrationsindstillinger",
         "data": {
@@ -215,6 +226,10 @@
           "description": "Valgfrit. Installations-ID'et der skal opdateres. Hvis ikke angivet, opdateres alle installationer."
         }
       }
+    },
+    "fetch_more_history": {
+      "name": "Hent mere historik",
+      "description": "Hent 30 dage mere historiske målerdata til Energi-dashboardet. Hvert kald går 30 dage længere tilbage."
     }
   }
 }

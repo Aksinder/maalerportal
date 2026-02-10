@@ -20,15 +20,18 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 # Service constants
 SERVICE_REFRESH = "refresh"
+SERVICE_FETCH_MORE_HISTORY = "fetch_more_history"
 ATTR_INSTALLATION_ID = "installation_id"
 
 # Event constants
 EVENT_METER_UPDATED = f"{DOMAIN}_meter_updated"
 
-# Service schema
+# Service schemas
 SERVICE_REFRESH_SCHEMA = vol.Schema({
     vol.Optional(ATTR_INSTALLATION_ID): str,
 })
+
+SERVICE_FETCH_MORE_HISTORY_SCHEMA = vol.Schema({})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -43,6 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "installations": entry.data["installations"],
         "email": entry.data.get("email", ""),
         "sensors": [],  # Will be populated by sensor platform
+        "history_fetched_days": entry.options.get("history_fetched_days", 30),
     }
     
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -87,6 +91,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         _LOGGER.info("Registered %s.%s service", DOMAIN, SERVICE_REFRESH)
 
+    # Register fetch_more_history service (only once)
+    if not hass.services.has_service(DOMAIN, SERVICE_FETCH_MORE_HISTORY):
+        async def async_fetch_more_history_service(call: ServiceCall) -> None:
+            """Handle fetch more history service call."""
+            from .sensor import MaalerportalStatisticSensor
+            
+            total_records = 0
+            
+            for eid, entry_data in hass.data[DOMAIN].items():
+                current_days = entry_data.get("history_fetched_days", 30)
+                from_days = current_days + 30
+                to_days = current_days
+                
+                _LOGGER.info(
+                    "Fetching more history for entry %s: %d to %d days ago",
+                    eid, from_days, to_days
+                )
+                
+                sensors = entry_data.get("sensors", [])
+                for sensor in sensors:
+                    if isinstance(sensor, MaalerportalStatisticSensor):
+                        count = await sensor.async_fetch_older_history(from_days, to_days)
+                        total_records += count
+                
+                # Persist updated days to config entry options (survives restarts)
+                entry_data["history_fetched_days"] = from_days
+                config_entry = hass.config_entries.async_get_entry(eid)
+                if config_entry:
+                    new_options = dict(config_entry.options)
+                    new_options["history_fetched_days"] = from_days
+                    hass.config_entries.async_update_entry(
+                        config_entry, options=new_options
+                    )
+            
+            _LOGGER.info(
+                "Fetch more history complete: %d total records inserted",
+                total_records
+            )
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_FETCH_MORE_HISTORY,
+            async_fetch_more_history_service,
+            schema=SERVICE_FETCH_MORE_HISTORY_SCHEMA,
+        )
+        _LOGGER.info("Registered %s.%s service", DOMAIN, SERVICE_FETCH_MORE_HISTORY)
+
     return True
 
 
@@ -98,15 +149,26 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Unregister service if no more entries
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_REFRESH)
-            _LOGGER.info("Unregistered %s.%s service", DOMAIN, SERVICE_REFRESH)
+            hass.services.async_remove(DOMAIN, SERVICE_FETCH_MORE_HISTORY)
+            _LOGGER.info("Unregistered %s services", DOMAIN)
 
     return unload_ok
 
 
 async def async_options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
-    _LOGGER.info("Options updated, reloading integration")
-    await hass.config_entries.async_reload(entry.entry_id)
+    # Don't reload if only history_fetched_days changed (not a config change)
+    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    stored_days = entry_data.get("history_fetched_days", 30)
+    option_days = entry.options.get("history_fetched_days", 30)
+    if stored_days == option_days:
+        # A real config change (e.g. polling_interval) — reload
+        _LOGGER.info("Options updated, reloading integration")
+        await hass.config_entries.async_reload(entry.entry_id)
+    else:
+        # Just history_fetched_days update — sync in-memory value, no reload needed
+        entry_data["history_fetched_days"] = option_days
+        _LOGGER.debug("Updated history_fetched_days to %d (no reload)", option_days)
 
 
 def fire_meter_updated_event(

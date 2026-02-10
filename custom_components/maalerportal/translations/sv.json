@@ -192,8 +192,19 @@
     }
   },
   "options": {
+    "abort": {
+      "fetch_more_history_done": "Klart! Historiska data täcker nu de senaste {days} dagarna. Det kan ta några minuter innan Energi-dashboarden uppdateras."
+    },
     "step": {
       "init": {
+        "title": "Målerportal-alternativ",
+        "description": "Täcker för närvarande {days} dagars historik. Vad vill du göra?",
+        "menu_options": {
+          "settings": "Inställningar",
+          "fetch_more_history": "Hämta 30 dagar mer historik"
+        }
+      },
+      "settings": {
         "title": "Inställningar",
         "description": "Konfigurera Målerportal-integrationsinställningar",
         "data": {
@@ -215,6 +226,10 @@
           "description": "Valfritt. Installations-ID att uppdatera. Om inte angivet uppdateras alla installationer."
         }
       }
+    },
+    "fetch_more_history": {
+      "name": "Hämta mer historik",
+      "description": "Hämta 30 dagar mer historiska mätardata för Energi-dashboarden. Varje anrop går 30 dagar längre tillbaka."
     }
   }
 }

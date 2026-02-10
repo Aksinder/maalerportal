@@ -10,3 +10,6 @@ refresh:
       selector:
         text:
 
+fetch_more_history:
+  name: Fetch more history
+  description: Fetch 30 more days of historical meter data for the Energy Dashboard. Each call goes 30 days further back.

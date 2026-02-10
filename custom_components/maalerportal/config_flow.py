@@ -579,9 +579,23 @@ class OptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage the options."""
+        """Show the options menu."""
+        current_days = self.config_entry.options.get("history_fetched_days", 30)
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["settings", "fetch_more_history"],
+            description_placeholders={"days": str(current_days)},
+        )
+
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage polling interval settings."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Preserve history_fetched_days when saving other settings
+            new_options = dict(self.config_entry.options)
+            new_options.update(user_input)
+            return self.async_create_entry(title="", data=new_options)
 
         # Get current values
         current_interval = self.config_entry.options.get(
@@ -589,7 +603,7 @@ class OptionsFlow(config_entries.OptionsFlow):
         )
 
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
@@ -601,6 +615,23 @@ class OptionsFlow(config_entries.OptionsFlow):
                     ),
                 }
             ),
+        )
+
+    async def async_step_fetch_more_history(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Fetch more historical data."""
+        # Call the service to fetch more history
+        await self.hass.services.async_call(
+            DOMAIN, "fetch_more_history", {}
+        )
+
+        # Read persisted value from options (updated by the service)
+        days_fetched = self.config_entry.options.get("history_fetched_days", 30)
+
+        return self.async_abort(
+            reason="fetch_more_history_done",
+            description_placeholders={"days": str(days_fetched)},
         )
 
 
