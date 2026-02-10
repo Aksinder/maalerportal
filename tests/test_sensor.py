@@ -10,6 +10,23 @@ from homeassistant.util import dt as dt_util
 from custom_components.maalerportal.const import DOMAIN
 from tests.common import MockConfigEntry
 
+@pytest.fixture(autouse=True)
+def mock_aiohttp():
+    """Mock aiohttp clientsession."""
+    with patch("homeassistant.helpers.aiohttp_client.async_get_clientsession") as mock_session:
+        session = MagicMock()
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.ok = True
+        mock_response.json.return_value = {"readings": []}
+        
+        # Configure context managers
+        session.get.return_value.__aenter__.return_value = mock_response
+        session.post.return_value.__aenter__.return_value = mock_response
+        
+        mock_session.return_value = session
+        yield mock_session
+
 async def test_sensor_setup(hass: HomeAssistant) -> None:
     """Test setting up sensors from config entry."""
     entry = MockConfigEntry(
@@ -43,12 +60,12 @@ async def test_sensor_setup(hass: HomeAssistant) -> None:
                     "readingType": "counter",
                     "isPrimary": True,
                     "unit": "kWh",
-                    "value": "1000.5",  # API returns strings sometimes
+                    "latestValue": "1000.5",  # API returns strings sometimes
                     "latestTimestamp": "2023-01-01T12:00:00Z"
                 },
                 {
                     "counterType": "BatteryDaysRemaining",
-                    "value": "200",
+                    "latestValue": "200",
                     "unit": "days",
                     "meterCounterId": "c2",
                     "readingType": "counter"
@@ -110,7 +127,7 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
                 "meterCounterId": "c1",
                 "counterType": "ElectricityFromGrid",
                 "isPrimary": True,
-                "value": "1000",
+                "latestValue": "1000",
                 "unit": "kWh",
                 "latestTimestamp": "2023-01-01T12:00:00Z"
             }]
@@ -121,7 +138,7 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
         
         # Find sensor
         states = hass.states.async_all()
-        sensor = next(s for s in states if s.state == "1000")
+        sensor = next((s for s in states if s.state == "1000"), None)
         assert sensor is not None
         
         # Update data
@@ -130,7 +147,7 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
                 "meterCounterId": "c1",
                 "counterType": "ElectricityFromGrid",
                 "isPrimary": True,
-                "value": "1001",
+                "latestValue": "1001",
                 "unit": "kWh",
                 "latestTimestamp": "2023-01-01T13:00:00Z"
             }]
