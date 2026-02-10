@@ -497,52 +497,52 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             async with aiohttp.ClientSession() as session:
                 # Get addresses and installations
-                addresses_response = await session.get(
+                async with session.get(
                     f"{SMARTHOME_BASE_URL}/addresses",
                     headers={"ApiKey": self.context["apikey"]},
-                )
+                ) as addresses_response:
 
-                if addresses_response.status == 429:
-                    errors["base"] = "rate_limit"
-                elif not addresses_response.ok:
-                    errors["base"] = "cannot_connect"
-                else:
-                    addresses = await addresses_response.json()
-                    installations = []
+                    if addresses_response.status == 429:
+                        errors["base"] = "rate_limit"
+                    elif not addresses_response.ok:
+                        errors["base"] = "cannot_connect"
+                    else:
+                        addresses = await addresses_response.json()
+                        installations = []
 
-                    for address in addresses:
-                        for installation in address.get("installations", []):
-                            installation_id = installation.get("installationId")
-                            utility_name = installation.get("utilityName", "Unknown")
-                            installation_type = installation.get("installationType", "Unknown")
-                            meter_serial = installation.get("meterSerial", "Unknown")
-                            nickname = installation.get("nickname", "")
+                        for address in addresses:
+                            for installation in address.get("installations", []):
+                                installation_id = installation.get("installationId")
+                                utility_name = installation.get("utilityName", "Unknown")
+                                installation_type = installation.get("installationType", "Unknown")
+                                meter_serial = installation.get("meterSerial", "Unknown")
+                                nickname = installation.get("nickname", "")
 
-                            # Create device name: Address - SerialNumber (+ nickname if available)
-                            device_name = f"{address.get('address', 'Unknown')} - {meter_serial}"
-                            if nickname:
-                                device_name += f" ({nickname})"
+                                # Create device name: Address - SerialNumber (+ nickname if available)
+                                device_name = f"{address.get('address', 'Unknown')} - {meter_serial}"
+                                if nickname:
+                                    device_name += f" ({nickname})"
 
-                            # Get translated meter type label
-                            meter_type_label = get_meter_type_label(installation_type)
-                            entities_with_labels[installation_id] = f"{device_name} [{meter_type_label}]"
-                            
-                            # Store full installation data
-                            installations.append({
-                                "installationId": installation_id,
-                                "address": address.get("address"),
-                                "timezone": address.get("timezone"),
-                                "installationType": installation_type,
-                                "utilityName": utility_name,
-                                "meterSerial": meter_serial,
-                                "nickname": nickname,
-                            })
+                                # Get translated meter type label
+                                meter_type_label = get_meter_type_label(installation_type)
+                                entities_with_labels[installation_id] = f"{device_name} [{meter_type_label}]"
+                                
+                                # Store full installation data
+                                installations.append({
+                                    "installationId": installation_id,
+                                    "address": address.get("address"),
+                                    "timezone": address.get("timezone"),
+                                    "installationType": installation_type,
+                                    "utilityName": utility_name,
+                                    "meterSerial": meter_serial,
+                                    "nickname": nickname,
+                                })
 
-                    self.context["installationdata"] = installations
-                    
-                    # Check if no meters were found
-                    if not entities_with_labels:
-                        errors["base"] = "no_meters"
+                        self.context["installationdata"] = installations
+                        
+                        # Check if no meters were found
+                        if not entities_with_labels:
+                            errors["base"] = "no_meters"
 
         except aiohttp.ClientError:
             errors["base"] = "cannot_connect"
