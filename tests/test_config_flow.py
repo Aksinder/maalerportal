@@ -14,6 +14,7 @@ def mock_check_auth_fixture():
     """Mock check_auth_methods."""
     with patch(
         "custom_components.maalerportal.config_flow.check_auth_methods",
+        new_callable=AsyncMock,
         return_value={"exists": True, "hasPassword": True},
     ) as mock_check:
         yield mock_check
@@ -23,6 +24,7 @@ def mock_login_fixture():
     """Mock attempt_login."""
     with patch(
         "custom_components.maalerportal.config_flow.attempt_login",
+        new_callable=AsyncMock,
         return_value={"success": True, "token": "mock_token"},
     ) as mock_login:
         yield mock_login
@@ -32,6 +34,7 @@ def mock_get_api_key_fixture():
     """Mock get_api_key."""
     with patch(
         "custom_components.maalerportal.config_flow.get_api_key",
+        new_callable=AsyncMock,
         return_value="mock_api_key",
     ) as mock_apikey:
         yield mock_apikey
@@ -41,6 +44,7 @@ def mock_test_connection_fixture():
     """Mock test_api_connection."""
     with patch(
         "custom_components.maalerportal.config_flow.test_api_connection",
+        new_callable=AsyncMock,
         return_value=True,
     ) as mock_test:
         yield mock_test
@@ -49,7 +53,9 @@ def mock_test_connection_fixture():
 def mock_setup_entry_fixture():
     """Mock setup entry."""
     with patch(
-        "custom_components.maalerportal.async_setup_entry", return_value=True
+        "custom_components.maalerportal.async_setup_entry", 
+        new_callable=AsyncMock,
+        return_value=True
     ) as mock_setup:
         yield mock_setup
 
@@ -156,6 +162,7 @@ async def test_duplicate_entry(hass: HomeAssistant, mock_check_auth: AsyncMock) 
         title="Existing Entry",
         data={"email": "test@example.com"},
         source=config_entries.SOURCE_USER,
+        unique_id="test@example.com",
         discovery_keys={},
         minor_version=1,
         options={},
