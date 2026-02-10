@@ -449,7 +449,13 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                             pass
         
         # Schedule initial statistics update
-        self.hass.async_create_task(self._async_update_statistics())
+        self._history_task = self.hass.async_create_task(self._async_update_statistics())
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Run when entity is removed from hass."""
+        if hasattr(self, "_history_task") and self._history_task:
+            self._history_task.cancel()
+        await super().async_will_remove_from_hass()
 
     async def async_update(self) -> None:
         """Update statistics from historical API data."""
