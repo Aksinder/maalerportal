@@ -10,29 +10,6 @@ from homeassistant.util import dt as dt_util
 from custom_components.maalerportal.const import DOMAIN
 from tests.common import MockConfigEntry
 
-@pytest.fixture(autouse=True)
-def mock_aiohttp():
-    """Mock aiohttp clientsession."""
-    with patch("homeassistant.helpers.aiohttp_client.async_get_clientsession") as mock_session:
-        # Create response as AsyncMock to support await response.json()
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.ok = True
-        mock_response.json = AsyncMock(return_value={"readings": []})
-        
-        # Support context manager protocol: async with session.get(...) as response:
-        # This requires session.get() to return an awaitable that resolves to mock_response,
-        # AND mock_response must have __aenter__ returning itself.
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-        
-        # Create session as AsyncMock so session.get/post are AsyncMocks returning mock_response
-        session = AsyncMock()
-        session.get.return_value = mock_response
-        session.post.return_value = mock_response
-        
-        mock_session.return_value = session
-        yield mock_session
 
 async def test_sensor_setup(hass: HomeAssistant) -> None:
     """Test setting up sensors from config entry."""
