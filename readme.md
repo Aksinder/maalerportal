@@ -2,38 +2,55 @@
 
 This is a custom component for Home Assistant to integrate Målerportal.
 
-## Prerequisits:
+## Prerequisites
 
 Ensure that HACS is installed.
 
-Guide: https://www.hacs.xyz/docs/use/configuration/basic/#to-set-up-the-hacs-integration<br/>
-Guide docker: https://www.simplysmart.house/blog/how-to-install-HACS-on-home-assistant-Docker
+- Guide: https://www.hacs.xyz/docs/use/configuration/basic/#to-set-up-the-hacs-integration
+- Guide docker: https://www.simplysmart.house/blog/how-to-install-HACS-on-home-assistant-Docker
 
 
-## Installation:
-- Go to "HACS" on the left-hand side of the Home Assistant dashboard
-- Click the button in the top right corner <br/>
+## Installation
+
+1. Go to "HACS" on the left-hand side of the Home Assistant dashboard
+2. Click the button in the top right corner:
     ![alt text](documentation/image.png)
-- Add this repository (https://github.com/maalerportal/maalerportal) as a custom repository<br/>
-![alt text](documentation/image2.png)
-- After clicking the add button
-- Press the X button
-- Search for and download the "Målerportal" integration.
-- Restart Home Assistant.
-- After the restart go to "Settings" → "Devices & Services" → "Add Integration"
-- Search and click on "Målerportal"         
-- You will now be prompted to log in with your Målerportal credentials
-- Select which meters you want to add to Home Assistant (you can always add more later)
-- **Wait 1-2 minutes** for the integration to fetch your historical meter data
+3. Add this repository (https://github.com/maalerportal/maalerportal) as a custom repository:
+    ![alt text](documentation/image2.png)
+4. After clicking the add button, press the X button
+5. Search for and download the "Målerportal" integration.
+6. Restart Home Assistant.
+7. After the restart go to **Settings** → **Devices & Services** → **Add Integration**
+8. Search and click on "Målerportal"         
+9. You will now be prompted to log in with your Målerportal credentials
+10. Select which meters you want to add to Home Assistant (you can always add more later)
+11. **Wait 1-2 minutes** for the integration to fetch your historical meter data
 
-## Multiple Accounts
+## Features
 
+### Multiple Accounts
 If you have meters across different Målerportal accounts, you can add the integration multiple times — once per account. Each account will appear as a separate entry in **Settings → Devices & Services**, labeled with the account email.
 
-Simply repeat the installation steps above with a different email address.
+### Configurable Polling Interval
+By default, the integration fetches new data every 30 minutes. You can adjust this interval:
+1. Go to **Settings** → **Devices & Services** → **Målerportal**
+2. Click **Configure**
+3. Select **Settings**
+4. Adjust the **Update interval** (15-120 minutes)
 
-**Note:** The first data fetch may take a few minutes as it retrieves up to 30 days of historical readings for the Energy Dashboard.
- 
+### Manual History Fetch
+Sometimes there may be gaps in your historical data, or you want to fetch extensive history (e.g., last 3 months) for the Energy Dashboard.
+You can manually trigger a fetch via `Developer Tools` -> `Services`:
+
+**Service:** `maalerportal.fetch_more_history`
+
+**Parameters:**
+- **Statistic Sensor**: The specific sensor (e.g., `sensor.electricity_statistic`)
+- **From Days Ago**: Start fetching from this many days ago (default: 60)
+- **To Days Ago**: Stop fetching at this many days ago (default: 30)
+
+Example: To fill data for the month before last, set `From Days` to 60 and `To Days` to 30.
+
 ## Sensor Types
 
 The integration creates the following sensors for each meter:
@@ -46,7 +63,7 @@ The integration creates the following sensors for each meter:
 
 **Note:** Sensors marked "(Energy Dashboard)" or "(Energi-dashboard)" are specifically designed for use with Home Assistant's Energy Dashboard and contain historical data.
 
-## Add meters to your Energy Dashboard:
+## Add meters to your Energy Dashboard
 
 ### Electricity Meters
 1. Go to **Settings** → **Dashboards** → **Energy**

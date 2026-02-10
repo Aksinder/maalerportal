@@ -12,4 +12,33 @@ refresh:
 
 fetch_more_history:
   name: Fetch more history
-  description: Fetch 30 more days of historical meter data for the Energy Dashboard. Each call goes 30 days further back.
+  description: Fetch older historical data for Energy Dashboard statistics.
+  fields:
+    entity_id:
+      name: Statistic Sensor
+      description: The implementation-specific statistic sensor to fetch history for.
+      required: true
+      selector:
+        entity:
+          integration: maalerportal
+          domain: sensor
+    from_days:
+      name: From Days Ago
+      description: Start fetching data from this many days ago (e.g., 90).
+      required: false
+      default: 60
+      selector:
+        number:
+          min: 1
+          max: 365
+          unit_of_measurement: days
+    to_days:
+      name: To Days Ago
+      description: Stop fetching data at this many days ago (e.g., 60).
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 365
+          unit_of_measurement: days
