@@ -747,20 +747,20 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             
             # Update last inserted timestamp
             if statistics:
-                self._last_inserted_timestamp = statistics[-1]["start"]
+                self._last_inserted_timestamp = statistics[-1].start
             
             self._last_stats_update = datetime.now(timezone.utc)
             _LOGGER.info(
                 "Inserted %d statistics records for %s (from %s to %s)",
                 len(statistics),
                 self._statistic_id,
-                statistics[0]["start"].isoformat() if statistics else "N/A",
-                statistics[-1]["start"].isoformat() if statistics else "N/A",
+                statistics[0].start.isoformat() if statistics else "N/A",
+                statistics[-1].start.isoformat() if statistics else "N/A",
             )
             
             # Update entity state for consumption-type meters to reflect new cumulative sum
             if self._reading_type == "consumption":
-                    self.async_write_ha_state()
+                self.async_write_ha_state()
                 
         except asyncio.TimeoutError:
             _LOGGER.warning("Timeout fetching statistics data for sensor")
@@ -823,9 +823,10 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             _LOGGER.debug("Older history API returned %d readings", len(readings))
             
             # Filter readings for this counter
+            target_id = str(counter_id)
             counter_readings = [
                 r for r in readings
-                if r.get("meterCounterId") == counter_id and r.get("value") is not None
+                if str(r.get("meterCounterId") or "") == target_id and r.get("value") is not None
             ]
             
             if not counter_readings:
@@ -928,8 +929,8 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 "Inserted %d older statistics records for %s (from %s to %s)",
                 len(statistics),
                 self._statistic_id,
-                statistics[0]["start"].isoformat() if statistics else "N/A",
-                statistics[-1]["start"].isoformat() if statistics else "N/A",
+                statistics[0].start.isoformat() if statistics else "N/A",
+                statistics[-1].start.isoformat() if statistics else "N/A",
             )
             
             return len(statistics)
