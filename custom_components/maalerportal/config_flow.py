@@ -398,17 +398,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         totp_code=code,
                         two_factor_method="totp"
                     )
-                        
-                        if result.get("success"):
-                            # 2FA verified - get API key
-                            jwt_token = result["token"]
-                            api_key = await get_api_key(session, jwt_token)
-                            await test_api_connection(session, api_key)
-                            
-                            self.context.update({"apikey": api_key})
-                            return await self.async_step_entity_selection()
-                        else:
-                            errors["base"] = "invalid_code"
+
+                    if result.get("success"):
+                        # 2FA verified - get API key
+                        jwt_token = result["token"]
+                        api_key = await get_api_key(session, jwt_token)
+                        await test_api_connection(session, api_key)
+
+                        self.context.update({"apikey": api_key})
+                        return await self.async_step_entity_selection()
+                    else:
+                        errors["base"] = "invalid_code"
                             
                 except InvalidAuth:
                     errors["base"] = "invalid_code"
