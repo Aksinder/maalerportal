@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     DOMAIN, 
@@ -236,21 +237,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_email"
             else:
                 try:
-                    async with aiohttp.ClientSession() as session:
-                        # Check which auth methods are available
-                        self._user_auth_methods = await check_auth_methods(session, self._email)
-                        
-                        if not self._user_auth_methods.get("exists", True):
-                            errors["base"] = "user_not_found"
-                        elif not self._user_auth_methods.get("hasPassword", True):
-                            # User only has passkey - not supported in HA
-                            errors["base"] = "passkey_only"
-                        else:
-                            # User has password - set unique ID and check for duplicates
-                            await self.async_set_unique_id(self._email.lower())
-                            self._abort_if_unique_id_configured()
-                            # Proceed to password step
-                            return await self.async_step_password()
+                    session = async_get_clientsession(self.hass)
+                    # Check which auth methods are available
+                    self._user_auth_methods = await check_auth_methods(session, self._email)
+                    
+                    if not self._user_auth_methods.get("exists", True):
+                        errors["base"] = "user_not_found"
+                    elif not self._user_auth_methods.get("hasPassword", True):
+                        # User only has passkey - not supported in HA
+                        errors["base"] = "passkey_only"
+                    else:
+                        # User has password - set unique ID and check for duplicates
+                        await self.async_set_unique_id(self._email.lower())
+                        self._abort_if_unique_id_configured()
+                        # Proceed to password step
+                        return await self.async_step_password()
                             
                 except aiohttp.ClientError:
                     errors["base"] = "cannot_connect"
@@ -275,51 +276,51 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._password = user_input[CONF_PASSWORD]
             
             try:
-                async with aiohttp.ClientSession() as session:
-                    # Attempt login with email and password
-                    result = await attempt_login(session, self._email, self._password)
+                session = async_get_clientsession(self.hass)
+                # Attempt login with email and password
+                result = await attempt_login(session, self._email, self._password)
+                
+                if result.get("requires_2fa"):
+                    # 2FA required - store available methods and proceed
+                    self._available_2fa_methods = result.get("available_methods", {})
                     
-                    if result.get("requires_2fa"):
-                        # 2FA required - store available methods and proceed
-                        self._available_2fa_methods = result.get("available_methods", {})
-                        
-                        has_totp = self._available_2fa_methods.get("totp", False)
-                        has_email = self._available_2fa_methods.get("email", False)
-                        
-                        _LOGGER.debug("2FA required. TOTP: %s, Email: %s", has_totp, has_email)
-                        
-                        if has_totp and has_email:
-                            # Both methods available - let user choose
-                            return await self.async_step_2fa_choice()
-                        elif has_totp:
-                            # Only TOTP - go directly to TOTP code input
-                            self._selected_2fa_method = "totp"
-                            return await self.async_step_2fa_totp()
-                        elif has_email:
-                            # Only Email - trigger email send and go to email code input
-                            self._selected_2fa_method = "email"
-                            try:
-                                await attempt_login(
-                                    session, self._email, self._password,
-                                    two_factor_method="email"
-                                )
-                            except Exception:
-                                # Email send might return 428/202 which is expected
-                                pass
-                            return await self.async_step_2fa_email()
-                        else:
-                            errors["base"] = "no_2fa_methods"
-                    elif result.get("success"):
-                        # Login successful - get API key
-                        jwt_token = result["token"]
-                        api_key = await get_api_key(session, jwt_token)
-                        await test_api_connection(session, api_key)
-                        
-                        # Clear password from memory after successful use
-                        self._password = ""
-                        
-                        self.context.update({"apikey": api_key})
-                        return await self.async_step_entity_selection()
+                    has_totp = self._available_2fa_methods.get("totp", False)
+                    has_email = self._available_2fa_methods.get("email", False)
+                    
+                    _LOGGER.debug("2FA required. TOTP: %s, Email: %s", has_totp, has_email)
+                    
+                    if has_totp and has_email:
+                        # Both methods available - let user choose
+                        return await self.async_step_2fa_choice()
+                    elif has_totp:
+                        # Only TOTP - go directly to TOTP code input
+                        self._selected_2fa_method = "totp"
+                        return await self.async_step_2fa_totp()
+                    elif has_email:
+                        # Only Email - trigger email send and go to email code input
+                        self._selected_2fa_method = "email"
+                        try:
+                            await attempt_login(
+                                session, self._email, self._password,
+                                two_factor_method="email"
+                            )
+                        except Exception:
+                            # Email send might return 428/202 which is expected
+                            pass
+                        return await self.async_step_2fa_email()
+                    else:
+                        errors["base"] = "no_2fa_methods"
+                elif result.get("success"):
+                    # Login successful - get API key
+                    jwt_token = result["token"]
+                    api_key = await get_api_key(session, jwt_token)
+                    await test_api_connection(session, api_key)
+                    
+                    # Clear password from memory after successful use
+                    self._password = ""
+                    
+                    self.context.update({"apikey": api_key})
+                    return await self.async_step_entity_selection()
                         
             except InvalidAuth as err:
                 if "wrong_password" in str(err):
@@ -366,11 +367,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Trigger email OTP send
         try:
-            async with aiohttp.ClientSession() as session:
-                await attempt_login(
-                    session, self._email, self._password,
-                    two_factor_method="email"
-                )
+            session = async_get_clientsession(self.hass)
+            await attempt_login(
+                session, self._email, self._password,
+                two_factor_method="email"
+            )
         except Exception:
             # Email send might return 428/202 which is expected
             pass
@@ -390,13 +391,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_code_format"
             else:
                 try:
-                    async with aiohttp.ClientSession() as session:
-                        # Verify TOTP code
-                        result = await attempt_login(
-                            session, self._email, self._password,
-                            totp_code=code,
-                            two_factor_method="totp"
-                        )
+                    session = async_get_clientsession(self.hass)
+                    # Verify TOTP code
+                    result = await attempt_login(
+                        session, self._email, self._password,
+                        totp_code=code,
+                        two_factor_method="totp"
+                    )
                         
                         if result.get("success"):
                             # 2FA verified - get API key
@@ -438,13 +439,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_code_format"
             else:
                 try:
-                    async with aiohttp.ClientSession() as session:
-                        # Verify email OTP code
-                        result = await attempt_login(
-                            session, self._email, self._password,
-                            totp_code=code,
-                            two_factor_method="email"
-                        )
+                    session = async_get_clientsession(self.hass)
+                    # Verify email OTP code
+                    result = await attempt_login(
+                        session, self._email, self._password,
+                        totp_code=code,
+                        two_factor_method="email"
+                    )
                         
                         if result.get("success"):
                             # 2FA verified - get API key
@@ -495,12 +496,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         entities_with_labels: dict[str, str] = {}
         try:
-            async with aiohttp.ClientSession() as session:
-                # Get addresses and installations
-                async with session.get(
-                    f"{SMARTHOME_BASE_URL}/addresses",
-                    headers={"ApiKey": self.context["apikey"]},
-                ) as addresses_response:
+            # Use shared session
+            session = async_get_clientsession(self.hass)
+            _LOGGER.debug("ConfigFlow session: %s. SMARTHOME_BASE_URL: %s", session, SMARTHOME_BASE_URL)
+            # Get addresses and installations
+            async with session.get(
+                f"{SMARTHOME_BASE_URL}/addresses",
+                headers={"ApiKey": self.context["apikey"]},
+            ) as addresses_response:
 
                     if addresses_response.status == 429:
                         errors["base"] = "rate_limit"
@@ -544,11 +547,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         if not entities_with_labels:
                             errors["base"] = "no_meters"
 
-        except aiohttp.ClientError:
+        except CannotConnect:
             errors["base"] = "cannot_connect"
-        except Exception:
-            _LOGGER.exception("Unexpected error fetching installations")
-            errors["base"] = "unknown"
+        except Exception as err:
+            _LOGGER.exception("Unexpected error fetching installations: %s", err)
+            errors["base"] = "cannot_connect"
 
         # If no meters found, show the form with error
         if errors.get("base") == "no_meters":

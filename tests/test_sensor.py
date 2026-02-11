@@ -150,6 +150,7 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
         
         # Check new state
         new_state = hass.states.get(sensor.entity_id)
+        _LOGGER.debug("Sensor %s state: %s", sensor.entity_id, new_state.state)
         assert new_state.state == "1001"
         
         # Cleanup

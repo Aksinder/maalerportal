@@ -23,7 +23,9 @@ def bypass_auth_fixture():
 @pytest.fixture(name="mock_aiohttp", autouse=True)
 def mock_aiohttp_fixture():
     """Mock aiohttp clientsession."""
-    with patch("homeassistant.helpers.aiohttp_client.async_get_clientsession") as mock_session:
+    with patch("homeassistant.helpers.aiohttp_client.async_get_clientsession") as mock_hass_session, \
+         patch("aiohttp.ClientSession") as mock_session:
+        
         # Create response as AsyncMock to support await response.json()
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -39,6 +41,11 @@ def mock_aiohttp_fixture():
         session.get.return_value = mock_response
         session.post.return_value = mock_response
         
+        # Also support context manager for the session itself
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        
+        mock_hass_session.return_value = session
         mock_session.return_value = session
         yield session
 

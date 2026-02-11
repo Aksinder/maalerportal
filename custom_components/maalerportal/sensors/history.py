@@ -225,9 +225,10 @@ class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
             valid_readings = 0
             latest_timestamp: Optional[datetime] = None
             
+            target_id = str(counter_id)
             for reading in readings:
                 # Filter by counter ID
-                if reading.get("meterCounterId") != counter_id:
+                if str(reading.get("meterCounterId") or "") != target_id:
                     continue
                 
                 # Parse timestamp
@@ -296,7 +297,7 @@ class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
         except Exception as err:
             _LOGGER.exception("Unexpected error fetching historical data: %s", err)
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Not used for consumption sensor - we fetch historical data directly."""
         pass
 
@@ -480,6 +481,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         from homeassistant.components.recorder import get_instance
         from homeassistant.components.recorder.models import (
             StatisticData,
+            StatisticMeanType,
             StatisticMetaData,
         )
         from homeassistant.components.recorder.statistics import (
@@ -571,12 +573,10 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     _LOGGER.debug("Matching sample: %s", matching_samples[0])
             
             # Filter readings for this counter
-            # For both types: use value field (API always puts the reading in value)
-            # - Counter type: value = cumulative meter reading
-            # - Consumption type: value = interval consumption (need to accumulate)
+            target_id = str(counter_id)
             counter_readings = [
                 r for r in readings 
-                if r.get("meterCounterId") == counter_id and r.get("value") is not None
+                if str(r.get("meterCounterId") or "") == target_id and r.get("value") is not None
             ]
             
             _LOGGER.debug("Filtered to %d readings for counter %s (reading_type=%s)", 
@@ -777,6 +777,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             
         from homeassistant.components.recorder.models import (
             StatisticData,
+            StatisticMeanType,
             StatisticMetaData,
         )
         from homeassistant.components.recorder.statistics import async_import_statistics

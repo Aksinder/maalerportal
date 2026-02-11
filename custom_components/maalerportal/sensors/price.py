@@ -29,7 +29,7 @@ class MaalerportalPriceSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:currency-usd"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update price sensor."""
         for counter in meter_counters:
             if (counter.get("meterCounterId") == self._counter.get("meterCounterId") and 

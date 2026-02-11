@@ -87,29 +87,35 @@ class MaalerportalBaseSensor(SensorEntity):
             attrs["meter_counter_id"] = self._counter.get("meterCounterId", "")
         return attrs
 
-    def _parse_counter_value(self, counter: dict) -> Optional[float]:
+    def _parse_counter_value(self, counter: dict) -> float | None:
         """Parse and validate counter value."""
         latest_value = counter.get("latestValue")
         if latest_value is None:
+            _LOGGER.debug("latestValue is None for counter %s", counter.get("meterCounterId"))
             return None
             
         try:
             if isinstance(latest_value, (int, float)):
                 numeric_value = float(latest_value)
             elif isinstance(latest_value, str):
-                # Clean the string value - remove any non-numeric characters except decimal point
+                # Clean the string value - remove any non-numeric characters except decimal point and minus sign
                 cleaned_value = latest_value.strip()
+                _LOGGER.debug("Raw string value for counter %s: '%s'", counter.get("meterCounterId"), cleaned_value)
                 cleaned_value = re.sub(r'[^\d.-]', '', cleaned_value)
+                if not cleaned_value:
+                    _LOGGER.warning("Value '%s' resulted in empty string after cleaning", latest_value)
+                    return None
                 numeric_value = float(cleaned_value)
             else:
-                _LOGGER.error("Unexpected value type: %s", type(latest_value))
+                _LOGGER.error("Unexpected value type for %s: %s", latest_value, type(latest_value))
                 return None
                 
             # Validate the number
-            if not (isinstance(numeric_value, (int, float)) and not (numeric_value != numeric_value)):  # Check for NaN
-                _LOGGER.error("Invalid numeric value: %s", latest_value)
+            if not (isinstance(numeric_value, (int, float)) and numeric_value == numeric_value):  # Check for NaN
+                _LOGGER.error("Invalid numeric value for %s: %s", counter.get("meterCounterId"), latest_value)
                 return None
                 
+            _LOGGER.debug("Parsed value for %s: %s -> %s", counter.get("meterCounterId"), latest_value, numeric_value)
             return numeric_value
             
         except (ValueError, TypeError) as err:
@@ -146,12 +152,26 @@ class MaalerportalCoordinatorSensor(CoordinatorEntity[MaalerportalCoordinator], 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         # Get meter counters from coordinator data
+        if not self.coordinator.data:
+            _LOGGER.debug("No coordinator data available for %s", self.entity_id)
+            return
+
         meter_counters = self.coordinator.data.get("meterCounters", [])
+        _LOGGER.debug("Updating %s with %d counters", self.entity_id, len(meter_counters))
         
         # Find our counter and update
         if self._counter:
+            our_id = self._counter.get("meterCounterId")
+            _LOGGER.debug(
+                "Entity %s (tracking counter %s) updating from %d counters",
+                self.entity_id,
+                our_id,
+                len(meter_counters)
+            )
             self._update_from_meter_counters(meter_counters)
             self.async_write_ha_state()
+        else:
+            _LOGGER.debug("Entity %s has no tracking counter", self.entity_id)
 
     def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update sensor state from counter list (implemented by subclasses)."""
@@ -257,7 +277,7 @@ class MaalerportalPollingSensor(MaalerportalBaseSensor):
             _LOGGER.debug("Received %d meter counters", len(readings_data.get("meterCounters", [])))
 
             if readings_data.get("meterCounters"):
-                await self._update_from_meter_counters(readings_data["meterCounters"])
+                self._update_from_meter_counters(readings_data["meterCounters"])
             else:
                 _LOGGER.debug("No meter counters found in API response")
             
@@ -271,7 +291,7 @@ class MaalerportalPollingSensor(MaalerportalBaseSensor):
             _LOGGER.error("Error updating meter readings for installation %s: %s", 
                          self._installation_id, err)
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update sensor state from meter counter data - to be implemented by subclasses."""
         pass
         

@@ -67,10 +67,19 @@ class MaalerportalMainSensor(MaalerportalCoordinatorSensor):
             self._attr_native_unit_of_measurement = counter.get("unit")
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update main sensor from primary counter."""
+        our_id = str(self._counter.get("meterCounterId") or "")
         for counter in meter_counters:
-            if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
+            counter_id = str(counter.get("meterCounterId") or "")
+            _LOGGER.debug(
+                "Updating %s: comparing counter %s with expected %s",
+                self.entity_id,
+                counter_id,
+                our_id
+            )
+            if our_id and counter_id == our_id:
+                _LOGGER.debug("ID match found for %s", counter_id)
                 value = self._parse_counter_value(counter)
                 if value is not None:
                     # Ensure positive value for meters
@@ -81,7 +90,7 @@ class MaalerportalMainSensor(MaalerportalCoordinatorSensor):
                     # Check if value changed before firing event
                     old_value = self._attr_native_value
                     self._attr_native_value = value
-                    _LOGGER.debug("Updated main sensor value: %s %s", value, counter.get("unit", ""))
+                    _LOGGER.debug("Updated main sensor %s value: %s %s", self.entity_id, value, counter.get("unit", ""))
                     
                     # Fire event if value changed and hass is available
                     if self.hass and (old_value is None or old_value != value):
@@ -138,7 +147,7 @@ class MaalerportalBasicSensor(MaalerportalPollingSensor):
         """Fetch data from API with throttling."""
         await super().async_update()
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update basic sensor from first available counter."""
         if meter_counters:
             # Find primary counter or use first one
@@ -157,7 +166,7 @@ class MaalerportalBasicSensor(MaalerportalPollingSensor):
                     value = abs(value)
                 
                 self._attr_native_value = value
-                _LOGGER.debug("Updated basic sensor value: %s %s", value, primary_counter.get("unit", ""))
+                _LOGGER.debug("Updated basic sensor %s value: %s %s", self.entity_id, value, primary_counter.get("unit", ""))
 
 
 class MaalerportalBatterySensor(MaalerportalCoordinatorSensor):
@@ -178,10 +187,20 @@ class MaalerportalBatterySensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:battery"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update battery sensor."""
+        our_id = str(self._counter.get("meterCounterId") or "")
         for counter in meter_counters:
-            if counter.get("counterType") == "BatteryDaysRemaining":
+            counter_id = str(counter.get("meterCounterId") or "")
+            counter_type = counter.get("counterType")
+            
+            _LOGGER.debug(
+                "Checking counter %s for battery matching: type %s (expected BatteryDaysRemaining)",
+                counter_id,
+                counter_type
+            )
+            
+            if counter_type == "BatteryDaysRemaining":
                 value = self._parse_counter_value(counter)
                 if value is not None:
                     self._attr_native_value = int(value)
@@ -212,10 +231,12 @@ class MaalerportalTemperatureSensor(MaalerportalCoordinatorSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update temperature sensor."""
+        our_id = str(self._counter.get("meterCounterId") or "")
         for counter in meter_counters:
-            if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
+            counter_id = str(counter.get("meterCounterId") or "")
+            if our_id and counter_id == our_id:
                 value = self._parse_counter_value(counter)
                 if value is not None:
                     self._attr_native_value = round(value, 1)
@@ -246,10 +267,12 @@ class MaalerportalWaterTemperatureSensor(MaalerportalCoordinatorSensor):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update water temperature sensor."""
+        our_id = str(self._counter.get("meterCounterId") or "")
         for counter in meter_counters:
-            if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
+            counter_id = str(counter.get("meterCounterId") or "")
+            if our_id and counter_id == our_id:
                 value = self._parse_counter_value(counter)
                 if value is not None:
                     self._attr_native_value = round(value, 1)
@@ -280,10 +303,12 @@ class MaalerportalFlowSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:water-pump"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update flow sensor."""
+        our_id = str(self._counter.get("meterCounterId") or "")
         for counter in meter_counters:
-            if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
+            counter_id = str(counter.get("meterCounterId") or "")
+            if our_id and counter_id == our_id:
                 value = self._parse_counter_value(counter)
                 if value is not None:
                     self._attr_native_value = round(value, 3)
@@ -308,7 +333,7 @@ class MaalerportalNoiseSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:volume-high"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update noise sensor."""
         for counter in meter_counters:
             if counter.get("counterType") == "AcousticNoise":
@@ -361,7 +386,7 @@ class MaalerportalSecondarySensor(MaalerportalCoordinatorSensor):
         self._attr_unique_id = f"{self._installation_id}_{counter_type.lower()}_secondary"
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update secondary sensor."""
         for counter in meter_counters:
             if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
@@ -406,7 +431,7 @@ class MaalerportalSupplyTempSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-chevron-up"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update supply temperature sensor."""
         for counter in meter_counters:
             if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
@@ -435,7 +460,7 @@ class MaalerportalReturnTempSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-chevron-down"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update return temperature sensor."""
         for counter in meter_counters:
             if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
@@ -464,7 +489,7 @@ class MaalerportalTempDiffSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:thermometer-lines"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update temperature difference sensor."""
         for counter in meter_counters:
             if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
@@ -493,7 +518,7 @@ class MaalerportalHeatPowerSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:fire"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update heat power sensor."""
         for counter in meter_counters:
             if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
@@ -522,7 +547,7 @@ class MaalerportalHeatVolumeSensor(MaalerportalCoordinatorSensor):
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._attr_icon = "mdi:water-thermometer"
 
-    async def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update heat volume sensor."""
         for counter in meter_counters:
             if counter.get("meterCounterId") == self._counter.get("meterCounterId"):
