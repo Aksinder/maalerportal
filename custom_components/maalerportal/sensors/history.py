@@ -747,15 +747,15 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             
             # Update last inserted timestamp
             if statistics:
-                self._last_inserted_timestamp = statistics[-1].start
+                self._last_inserted_timestamp = statistics[-1]["start"]
             
             self._last_stats_update = datetime.now(timezone.utc)
             _LOGGER.info(
                 "Inserted %d statistics records for %s (from %s to %s)",
                 len(statistics),
                 self._statistic_id,
-                statistics[0].start.isoformat() if statistics else "N/A",
-                statistics[-1].start.isoformat() if statistics else "N/A",
+                statistics[0]["start"].isoformat() if statistics else "N/A",
+                statistics[-1]["start"].isoformat() if statistics else "N/A",
             )
             
             # Update entity state for consumption-type meters to reflect new cumulative sum
@@ -929,8 +929,8 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 "Inserted %d older statistics records for %s (from %s to %s)",
                 len(statistics),
                 self._statistic_id,
-                statistics[0].start.isoformat() if statistics else "N/A",
-                statistics[-1].start.isoformat() if statistics else "N/A",
+                statistics[0]["start"].isoformat() if statistics else "N/A",
+                statistics[-1]["start"].isoformat() if statistics else "N/A",
             )
             
             return len(statistics)
