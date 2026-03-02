@@ -517,47 +517,24 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             has_existing_stats = bool(last_stats and self._statistic_id in last_stats)
             
             if has_existing_stats:
-                # We have existing stats, only fetch recent data (last 7 days)
+                # We have existing stats – only fetch recent data (within 31-day limit)
                 start_date = end_date - timedelta(days=7)
                 _LOGGER.debug("Existing statistics found, fetching last 7 days")
             else:
-                # No existing stats, fetch last 30 days (API max is 31 days)
-                start_date = end_date - timedelta(days=30)
+                # No existing stats – fetch up to 1 year of history using chunked requests
+                # (API limit is 31 days per request; _fetch_historical_chunked handles splitting)
+                start_date = end_date - timedelta(days=365)
                 # Reset timestamp filter to allow all data
                 self._last_inserted_timestamp = None
-                _LOGGER.info("No existing statistics, fetching last 30 days of history")
-            
-            start_date_iso = start_date.strftime("%Y-%m-%dT00:00:00Z")
-            end_date_iso = end_date.strftime("%Y-%m-%dT23:59:59Z")
-            
-            session = async_get_clientsession(self.hass)
-            response = await session.post(
-                f"{self._smarthome_base_url}/installations/{self._installation_id}/readings/historical",
-                json={"from": start_date_iso, "to": end_date_iso},
-                headers={"ApiKey": self._api_key, "Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=60),
-            )
-            
-            if response.status == 429:
-                _LOGGER.warning("Rate limit exceeded for statistics data, will retry later")
-                return
-            
-            # Handle 404/403 - installation no longer accessible
-            if response.status in (404, 403):
-                _LOGGER.warning(
-                    "Installation %s no longer accessible (HTTP %s)",
-                    self._installation_id,
-                    response.status
+                _LOGGER.info(
+                    "No existing statistics, fetching up to 1 year of history in 31-day chunks"
                 )
-                await self._handle_installation_unavailable()
+
+            readings = await self._fetch_historical_chunked(start_date, end_date)
+            if not readings and not has_existing_stats:
+                _LOGGER.debug("No historical readings returned for installation %s",
+                              self._installation_id)
                 return
-            
-            if not response.ok:
-                _LOGGER.error("Statistics data request failed: HTTP %s", response.status)
-                return
-            
-            historical_data = await response.json()
-            readings = historical_data.get("readings", [])
             
             _LOGGER.debug("Historical API returned %d readings for installation %s", 
                           len(readings), self._installation_id)
@@ -769,6 +746,71 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         except Exception as err:
             _LOGGER.exception("Unexpected error updating statistics: %s", err)
 
+    async def _fetch_historical_chunked(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> list[dict]:
+        """Fetch historical readings in ≤31-day chunks to respect the API limit.
+
+        The API returns HTTP 500 with "Date range cannot exceed 31 days" for
+        larger windows, so we split automatically and return all readings merged.
+        """
+        MAX_CHUNK_DAYS = 31
+        session = async_get_clientsession(self.hass)
+        all_readings: list[dict] = []
+        chunk_end = end_date
+
+        while chunk_end > start_date:
+            chunk_start = max(chunk_end - timedelta(days=MAX_CHUNK_DAYS), start_date)
+            from_str = chunk_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            to_str = chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            try:
+                response = await session.post(
+                    f"{self._smarthome_base_url}/installations/{self._installation_id}/readings/historical",
+                    json={"from": from_str, "to": to_str},
+                    headers={"ApiKey": self._api_key, "Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=60),
+                )
+
+                if response.status == 429:
+                    _LOGGER.warning("Rate limit exceeded during chunked history fetch, stopping early")
+                    break
+
+                if response.status in (404, 403):
+                    _LOGGER.warning(
+                        "Installation %s no longer accessible (HTTP %s)",
+                        self._installation_id, response.status,
+                    )
+                    await self._handle_installation_unavailable()
+                    return all_readings
+
+                if not response.ok:
+                    _LOGGER.error(
+                        "Chunked history request failed: HTTP %s (%s to %s)",
+                        response.status, from_str, to_str,
+                    )
+                    break
+
+                data = await response.json()
+                chunk_readings = data.get("readings", [])
+                all_readings.extend(chunk_readings)
+                _LOGGER.debug(
+                    "Chunk %s → %s: %d readings", from_str, to_str, len(chunk_readings)
+                )
+
+            except asyncio.TimeoutError:
+                _LOGGER.warning("Timeout fetching chunk %s to %s", from_str, to_str)
+                break
+            except aiohttp.ClientError as err:
+                _LOGGER.error("Connection error fetching chunk: %s", err)
+                break
+
+            chunk_end = chunk_start - timedelta(seconds=1)
+
+        return all_readings
+
     async def async_fetch_older_history(self, from_days_ago: int, to_days_ago: int) -> int:
         """Fetch older historical data for a specific date range and insert into statistics."""
         if not self._statistic_id:
@@ -800,25 +842,9 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 self._statistic_id, from_days_ago, to_days_ago,
                 start_date_iso, end_date_iso
             )
-            
-            session = async_get_clientsession(self.hass)
-            response = await session.post(
-                f"{self._smarthome_base_url}/installations/{self._installation_id}/readings/historical",
-                json={"from": start_date_iso, "to": end_date_iso},
-                headers={"ApiKey": self._api_key, "Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=60),
-            )
-            
-            if response.status == 429:
-                _LOGGER.warning("Rate limit exceeded for older history fetch")
-                return 0
-            
-            if not response.ok:
-                _LOGGER.error("Older history fetch failed: HTTP %s", response.status)
-                return 0
-            
-            historical_data = await response.json()
-            readings = historical_data.get("readings", [])
+
+            readings = await self._fetch_historical_chunked(start_date, fetch_end_date)
+            _LOGGER.debug("Older history: %d total readings across all chunks", len(readings))
             
             _LOGGER.debug("Older history API returned %d readings", len(readings))
             
