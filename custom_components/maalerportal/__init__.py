@@ -13,7 +13,7 @@ from homeassistant.helpers import entity_registry as er
 import homeassistant.helpers.config_validation as cv
 
 from datetime import timedelta
-from .const import DOMAIN, DEFAULT_POLLING_INTERVAL
+from .const import DOMAIN, DEFAULT_POLLING_INTERVAL, CONF_CURRENCY, DEFAULT_CURRENCY
 from .coordinator import MaalerportalCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,9 +65,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Use config entry ID as part of a unique session key if needed, or just use helper
     # We use async_get_clientsession(hass) in checking/sensors now, so no custom session here.
     
+    # Currency: options override takes precedence over initial config data
+    currency = entry.options.get(
+        CONF_CURRENCY,
+        entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
+    )
+
     for installation in entry.data["installations"]:
         installation_id = installation["installationId"]
-        
+
         # Create coordinator
         coordinator = MaalerportalCoordinator(
             hass,
@@ -75,6 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.data["smarthome_base_url"],
             installation,
             polling_interval,
+            currency,
         )
         
         # Perform initial fetch

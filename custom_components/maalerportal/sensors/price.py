@@ -23,9 +23,10 @@ class MaalerportalPriceSensor(MaalerportalCoordinatorSensor):
         super().__init__(coordinator, counter)
         
         unit = counter.get("unit", "unit")
+        currency = coordinator.currency
         self._attr_translation_key = "price_per_unit"
         self._attr_unique_id = f"{self._installation_id}_price_per_unit"
-        self._attr_native_unit_of_measurement = f"kr/{unit}"
+        self._attr_native_unit_of_measurement = f"{currency}/{unit}"
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:currency-usd"
 
@@ -36,9 +37,10 @@ class MaalerportalPriceSensor(MaalerportalCoordinatorSensor):
                 counter.get("isPrimary", False)):
                 price_per_unit = counter.get("pricePerUnit")
                 if price_per_unit is not None:
-                    # Convert from øre to kroner (divide by 100)
-                    price_in_kroner = price_per_unit / 100
-                    self._attr_native_value = round(price_in_kroner, 4)
-                    _LOGGER.debug("Updated price per unit: %s kr/%s", 
-                                price_in_kroner, counter.get("unit", ""))
+                    # Convert from hundredths (öre/øre/cent) to main currency unit
+                    price_in_main_unit = price_per_unit / 100
+                    self._attr_native_value = round(price_in_main_unit, 4)
+                    _LOGGER.debug("Updated price per unit: %s %s/%s",
+                                price_in_main_unit, self._attr_native_unit_of_measurement.split("/")[0],
+                                counter.get("unit", ""))
                 break

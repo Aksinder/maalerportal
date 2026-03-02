@@ -25,12 +25,14 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         base_url: str,
         installation: dict,
         polling_interval: timedelta,
+        currency: str = "SEK",
     ) -> None:
         """Initialize."""
         self.api_key = api_key
         self.base_url = base_url
         self.installation = installation
         self.installation_id = installation["installationId"]
+        self.currency = currency
         self.session = async_get_clientsession(hass)
 
         super().__init__(

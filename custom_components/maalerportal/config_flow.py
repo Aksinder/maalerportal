@@ -16,13 +16,16 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
-    DOMAIN, 
-    AUTH_BASE_URL, 
-    ME_BASE_URL, 
+    DOMAIN,
+    AUTH_BASE_URL,
+    ME_BASE_URL,
     SMARTHOME_BASE_URL,
     DEFAULT_POLLING_INTERVAL,
     MIN_POLLING_INTERVAL,
     MAX_POLLING_INTERVAL,
+    CONF_CURRENCY,
+    DEFAULT_CURRENCY,
+    SUPPORTED_CURRENCIES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -492,6 +495,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             save_data["api_key"] = self.context["apikey"]
             save_data["smarthome_base_url"] = SMARTHOME_BASE_URL
             save_data["email"] = self._email
+            save_data[CONF_CURRENCY] = user_input.get(CONF_CURRENCY, DEFAULT_CURRENCY)
             return self.async_create_entry(title=f"Målerportal ({self._email})", data=save_data)
 
         entities_with_labels: dict[str, str] = {}
@@ -565,9 +569,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="entity_selection",
             data_schema=vol.Schema(
                 {
-                    vol.Optional("entity_selection"): cv.multi_select(
-                        entities_with_labels
-                    )
+                    vol.Optional(
+                        "entity_selection",
+                        default=list(entities_with_labels.keys()),
+                    ): cv.multi_select(entities_with_labels),
+                    vol.Optional(
+                        CONF_CURRENCY,
+                        default=DEFAULT_CURRENCY,
+                    ): vol.In(SUPPORTED_CURRENCIES),
                 },
                 extra=vol.ALLOW_EXTRA,
             ),
@@ -596,7 +605,7 @@ class OptionsFlow(config_entries.OptionsFlow):
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage polling interval settings."""
+        """Manage polling interval and currency settings."""
         if user_input is not None:
             # Preserve history_fetched_days when saving other settings
             new_options = dict(self._config_entry.options)
@@ -606,6 +615,10 @@ class OptionsFlow(config_entries.OptionsFlow):
         # Get current values
         current_interval = self._config_entry.options.get(
             "polling_interval", DEFAULT_POLLING_INTERVAL
+        )
+        current_currency = self._config_entry.options.get(
+            CONF_CURRENCY,
+            self._config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
         )
 
         return self.async_show_form(
@@ -619,6 +632,10 @@ class OptionsFlow(config_entries.OptionsFlow):
                         vol.Coerce(int),
                         vol.Range(min=MIN_POLLING_INTERVAL, max=MAX_POLLING_INTERVAL),
                     ),
+                    vol.Optional(
+                        CONF_CURRENCY,
+                        default=current_currency,
+                    ): vol.In(SUPPORTED_CURRENCIES),
                 }
             ),
         )
