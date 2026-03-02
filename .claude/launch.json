@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "API Explorer",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["scripts/explore_server.py"],
+      "port": 8765
+    },
+    {
+      "name": "Tests (pytest)",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "pytest", "--tb=short", "-v"],
+      "port": 0
+    }
+  ]
+}

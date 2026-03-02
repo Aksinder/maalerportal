@@ -164,11 +164,18 @@ async def fetch_latest_readings(
 async def fetch_history(
     session: aiohttp.ClientSession, api_key: str, installation_id: str, label: str
 ) -> None:
-    print_section(f"GET /v1/smarthome/installations/{installation_id}/readings/history")
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    from_date = (now - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00Z")
+    to_date = now.strftime("%Y-%m-%dT23:59:59Z")
+
+    print_section(f"POST /v1/smarthome/installations/{installation_id}/readings/historical")
     print(f"Installation: {label}")
-    async with session.get(
-        f"{SMARTHOME_BASE_URL}/installations/{installation_id}/readings/history",
-        headers={"ApiKey": api_key},
+    print(f"Body: {{from: {from_date}, to: {to_date}}}")
+    async with session.post(
+        f"{SMARTHOME_BASE_URL}/installations/{installation_id}/readings/historical",
+        json={"from": from_date, "to": to_date},
+        headers={"ApiKey": api_key, "Content-Type": "application/json"},
     ) as resp:
         try:
             data = await resp.json()
