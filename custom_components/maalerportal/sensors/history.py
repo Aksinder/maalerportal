@@ -175,11 +175,12 @@ class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
             now = datetime.now(timezone.utc)
             self._last_contact = now
             
-            # Calculate date range - fetch data since last processed, or last 30 days if first time
+            # Calculate date range - fetch data since last processed, or last 31 days if first time
+            # (API limit is 31 days per request)
             if self._last_processed_timestamp:
                 start_date = self._last_processed_timestamp
             else:
-                start_date = now - timedelta(days=30)
+                start_date = now - timedelta(days=31)
             
             end_date = now
             
@@ -515,11 +516,51 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             )
             
             has_existing_stats = bool(last_stats and self._statistic_id in last_stats)
-            
+
             if has_existing_stats:
-                # We have existing stats – only fetch recent data (within 31-day limit)
-                start_date = end_date - timedelta(days=7)
-                _LOGGER.debug("Existing statistics found, fetching last 7 days")
+                # Check how far back existing statistics go
+                # Fetch enough stats to cover ~31 days of hourly data
+                older_stats = await get_instance(self.hass).async_add_executor_job(
+                    get_last_statistics,
+                    self.hass,
+                    750,  # ~31 days of hourly data
+                    self._statistic_id,
+                    True,
+                    {"sum"},
+                )
+
+                stats_span_days = 0
+                if older_stats and self._statistic_id in older_stats:
+                    stat_list = older_stats[self._statistic_id]
+                    if stat_list:
+                        # stat_list is ordered newest first, so last entry is oldest
+                        oldest_stat = stat_list[-1]
+                        oldest_start = oldest_stat.get("start")
+                        if oldest_start is not None:
+                            if isinstance(oldest_start, datetime):
+                                oldest_dt = oldest_start
+                            elif isinstance(oldest_start, (int, float)):
+                                oldest_dt = datetime.fromtimestamp(oldest_start, tz=timezone.utc)
+                            else:
+                                oldest_dt = None
+                            if oldest_dt:
+                                stats_span_days = (end_date - oldest_dt).days
+
+                if stats_span_days <= 30:
+                    # Existing data only covers ≤30 days – re-fetch full year
+                    start_date = end_date - timedelta(days=365)
+                    self._last_inserted_timestamp = None
+                    _LOGGER.info(
+                        "Existing statistics only span %d days, re-fetching up to 1 year of history",
+                        stats_span_days,
+                    )
+                else:
+                    # We have >30 days of stats, just fetch recent data
+                    start_date = end_date - timedelta(days=7)
+                    _LOGGER.debug(
+                        "Existing statistics span %d days, fetching last 7 days",
+                        stats_span_days,
+                    )
             else:
                 # No existing stats – fetch up to 1 year of history using chunked requests
                 # (API limit is 31 days per request; _fetch_historical_chunked handles splitting)
