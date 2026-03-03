@@ -125,9 +125,9 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         
-        # Find sensor
+        # Find sensor (native_value is float 1000.0, state is "1000.0")
         states = hass.states.async_all()
-        sensor = next((s for s in states if s.state == "1000"), None)
+        sensor = next((s for s in states if s.state == "1000.0"), None)
         assert sensor is not None
         
         # Update data
@@ -150,8 +150,7 @@ async def test_sensor_update(hass: HomeAssistant) -> None:
         
         # Check new state
         new_state = hass.states.get(sensor.entity_id)
-        _LOGGER.debug("Sensor %s state: %s", sensor.entity_id, new_state.state)
-        assert new_state.state == "1001"
+        assert new_state.state == "1001.0"
         
         # Cleanup
         await hass.config_entries.async_unload(entry.entry_id)

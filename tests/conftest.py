@@ -36,10 +36,14 @@ def mock_aiohttp_fixture():
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
         
-        # Create session as AsyncMock so session.get/post are AsyncMocks returning mock_response
-        session = AsyncMock()
+        # Create session as MagicMock.
+        # session.get must be a regular MagicMock (not AsyncMock) because some code uses
+        # `async with session.get(...) as resp:` which requires a synchronous call returning
+        # an async context manager (not a coroutine).
+        # session.post is AsyncMock because it's used as `resp = await session.post(...)`.
+        session = MagicMock()
         session.get.return_value = mock_response
-        session.post.return_value = mock_response
+        session.post = AsyncMock(return_value=mock_response)
         
         # Also support context manager for the session itself
         session.__aenter__ = AsyncMock(return_value=session)
