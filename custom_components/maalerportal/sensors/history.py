@@ -387,6 +387,8 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         # Track last inserted timestamp and cumulative sum for consumption types
         self._last_inserted_timestamp: Optional[datetime] = None
         self._cumulative_sum: float = 0.0
+        # Prevent repeated full-year fetches when API only has limited data
+        self._full_year_fetch_done: bool = False
 
     @property
     def native_value(self) -> Optional[float]:
@@ -546,8 +548,8 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                             if oldest_dt:
                                 stats_span_days = (end_date - oldest_dt).days
 
-                if stats_span_days <= 30:
-                    # Existing data only covers ≤30 days – re-fetch full year
+                if stats_span_days <= 30 and not self._full_year_fetch_done:
+                    # Existing data only covers ≤30 days – re-fetch full year (once)
                     start_date = end_date - timedelta(days=365)
                     self._last_inserted_timestamp = None
                     _LOGGER.info(
@@ -572,6 +574,9 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 )
 
             readings = await self._fetch_historical_chunked(start_date, end_date)
+            # Mark full-year fetch as done so we don't repeat it every poll cycle
+            if (end_date - start_date).days > 30:
+                self._full_year_fetch_done = True
             if not readings and not has_existing_stats:
                 _LOGGER.debug("No historical readings returned for installation %s",
                               self._installation_id)

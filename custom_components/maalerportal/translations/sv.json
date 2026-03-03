@@ -193,7 +193,8 @@
   },
   "options": {
     "abort": {
-      "fetch_more_history_done": "Klart! Historiska data täcker nu de senaste {days} dagarna. Det kan ta några minuter innan Energi-dashboarden uppdateras."
+      "fetch_more_history_done": "Klart! Historiska data täcker nu de senaste {days} dagarna. Det kan ta några minuter innan Energi-dashboarden uppdateras.",
+      "no_history_sensors": "Inga historik-sensorer hittades. Ladda om integrationen först."
     },
     "step": {
       "init": {

@@ -644,17 +644,37 @@ class OptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Fetch more historical data."""
-        # Call the service to fetch more history
-        await self.hass.services.async_call(
-            DOMAIN, "fetch_more_history", {}
+        entry_data = self.hass.data.get(DOMAIN, {}).get(
+            self._config_entry.entry_id, {}
         )
+        sensors = entry_data.get("sensors", [])
+        # Find statistic sensors that support history fetching
+        history_sensors = [
+            s for s in sensors if hasattr(s, "async_fetch_older_history")
+        ]
 
-        # Read persisted value from options (updated by the service)
+        if not history_sensors:
+            _LOGGER.warning("No history sensors found for config entry %s", self._config_entry.entry_id)
+            return self.async_abort(reason="no_history_sensors")
+
         days_fetched = self._config_entry.options.get("history_fetched_days", 30)
+        from_days = days_fetched + 30
+        to_days = days_fetched
+
+        # Directly call fetch on each sensor (avoids service schema issues)
+        for sensor in history_sensors:
+            await sensor.async_fetch_older_history(from_days, to_days)
+
+        # Update persisted days
+        new_options = dict(self._config_entry.options)
+        new_options["history_fetched_days"] = from_days
+        self.hass.config_entries.async_update_entry(
+            self._config_entry, options=new_options
+        )
 
         return self.async_abort(
             reason="fetch_more_history_done",
-            description_placeholders={"days": str(days_fetched)},
+            description_placeholders={"days": str(from_days)},
         )
 
 

@@ -193,7 +193,8 @@
   },
   "options": {
     "abort": {
-      "fetch_more_history_done": "Done! Historical data now covers the last {days} days. It may take a few minutes for the Energy Dashboard to update."
+      "fetch_more_history_done": "Done! Historical data now covers the last {days} days. It may take a few minutes for the Energy Dashboard to update.",
+      "no_history_sensors": "No history sensors found. Please reload the integration first."
     },
     "step": {
       "init": {
