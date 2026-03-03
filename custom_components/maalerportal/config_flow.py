@@ -49,18 +49,39 @@ STEP_2FA_CODE_SCHEMA = vol.Schema(
     }
 )
 
-# Meter type translations (Danish as default, since it's a Danish product)
-METER_TYPE_TRANSLATIONS = {
-    "ColdWater": "Koldt vand",
-    "HotWater": "Varmt vand",
-    "Electricity": "El",
-    "Heat": "Varme",
+# Meter type translations per language
+_METER_TYPE_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "da": {
+        "ColdWater": "Koldt vand",
+        "HotWater": "Varmt vand",
+        "Electricity": "El",
+        "Heat": "Varme",
+    },
+    "sv": {
+        "ColdWater": "Kallvatten",
+        "HotWater": "Varmvatten",
+        "Electricity": "El",
+        "Heat": "Värme",
+    },
+    "no": {
+        "ColdWater": "Kaldt vann",
+        "HotWater": "Varmt vann",
+        "Electricity": "Strøm",
+        "Heat": "Varme",
+    },
+    "en": {
+        "ColdWater": "Cold water",
+        "HotWater": "Hot water",
+        "Electricity": "Electricity",
+        "Heat": "Heat",
+    },
 }
 
 
-def get_meter_type_label(meter_type: str) -> str:
-    """Get translated label for meter type."""
-    return METER_TYPE_TRANSLATIONS.get(meter_type, meter_type)
+def get_meter_type_label(meter_type: str, language: str = "da") -> str:
+    """Get translated label for meter type based on HA language."""
+    translations = _METER_TYPE_TRANSLATIONS.get(language) or _METER_TYPE_TRANSLATIONS["da"]
+    return translations.get(meter_type, meter_type)
 
 
 async def check_auth_methods(
@@ -531,7 +552,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     device_name += f" ({nickname})"
 
                                 # Get translated meter type label
-                                meter_type_label = get_meter_type_label(installation_type)
+                                meter_type_label = get_meter_type_label(installation_type, self.hass.config.language)
                                 entities_with_labels[installation_id] = f"{device_name} [{meter_type_label}]"
                                 
                                 # Store full installation data
