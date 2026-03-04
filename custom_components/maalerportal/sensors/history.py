@@ -554,12 +554,12 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     stats_span_days,
                 )
             else:
-                # No existing stats – fetch the last 30 days to bootstrap.
-                # Older history can be loaded via the "Fetch 30 more days" button.
-                start_date = end_date - timedelta(days=30)
+                # No existing stats – fetch up to 1 year of history using chunked requests
+                # (API limit is 31 days per request; _fetch_historical_chunked handles splitting)
+                start_date = end_date - timedelta(days=365)
                 self._last_inserted_timestamp = None
                 _LOGGER.info(
-                    "No existing statistics, fetching last 30 days to bootstrap"
+                    "No existing statistics, fetching up to 1 year of history in 31-day chunks"
                 )
 
             readings = await self._fetch_historical_chunked(start_date, end_date)
