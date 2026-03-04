@@ -678,7 +678,7 @@ class OptionsFlow(config_entries.OptionsFlow):
             _LOGGER.warning("No history sensors found for config entry %s", self._config_entry.entry_id)
             return self.async_abort(reason="no_history_sensors")
 
-        days_fetched = self._config_entry.options.get("history_fetched_days", 30)
+        days_fetched = entry_data.get("history_fetched_days", 30)
         from_days = days_fetched + 30
         to_days = days_fetched
 
@@ -686,12 +686,8 @@ class OptionsFlow(config_entries.OptionsFlow):
         for sensor in history_sensors:
             await sensor.async_fetch_older_history(from_days, to_days)
 
-        # Update persisted days
-        new_options = dict(self._config_entry.options)
-        new_options["history_fetched_days"] = from_days
-        self.hass.config_entries.async_update_entry(
-            self._config_entry, options=new_options
-        )
+        # Store days counter in hass.data (NOT in options, to avoid triggering a reload)
+        entry_data["history_fetched_days"] = from_days
 
         return self.async_abort(
             reason="fetch_more_history_done",

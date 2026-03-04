@@ -387,8 +387,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         # Track last inserted timestamp and cumulative sum for consumption types
         self._last_inserted_timestamp: Optional[datetime] = None
         self._cumulative_sum: float = 0.0
-        # Prevent repeated full-year fetches when API only has limited data
-        self._full_year_fetch_done: bool = False
 
     @property
     def native_value(self) -> Optional[float]:
@@ -548,42 +546,30 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                             if oldest_dt:
                                 stats_span_days = (end_date - oldest_dt).days
 
-                if stats_span_days <= 30 and not self._full_year_fetch_done:
-                    # Existing data only covers ≤30 days – re-fetch full year (once)
-                    start_date = end_date - timedelta(days=365)
-                    self._last_inserted_timestamp = None
-                    _LOGGER.info(
-                        "Existing statistics only span %d days, re-fetching up to 1 year of history",
-                        stats_span_days,
-                    )
-                else:
-                    # We have >30 days of stats, just fetch recent data
-                    start_date = end_date - timedelta(days=7)
-                    _LOGGER.debug(
-                        "Existing statistics span %d days, fetching last 7 days",
-                        stats_span_days,
-                    )
+                # Just fetch recent data to keep statistics current.
+                # Historical backfill is handled by the "Fetch 30 more days" button.
+                start_date = end_date - timedelta(days=7)
+                _LOGGER.debug(
+                    "Existing statistics span %d days, fetching last 7 days",
+                    stats_span_days,
+                )
             else:
-                # No existing stats – fetch up to 1 year of history using chunked requests
-                # (API limit is 31 days per request; _fetch_historical_chunked handles splitting)
-                start_date = end_date - timedelta(days=365)
-                # Reset timestamp filter to allow all data
+                # No existing stats – fetch the last 30 days to bootstrap.
+                # Older history can be loaded via the "Fetch 30 more days" button.
+                start_date = end_date - timedelta(days=30)
                 self._last_inserted_timestamp = None
                 _LOGGER.info(
-                    "No existing statistics, fetching up to 1 year of history in 31-day chunks"
+                    "No existing statistics, fetching last 30 days to bootstrap"
                 )
 
             readings = await self._fetch_historical_chunked(start_date, end_date)
-            # Mark full-year fetch as done so we don't repeat it every poll cycle
-            if (end_date - start_date).days > 30:
-                self._full_year_fetch_done = True
             if not readings and not has_existing_stats:
                 _LOGGER.debug("No historical readings returned for installation %s",
                               self._installation_id)
                 return
             
-            _LOGGER.debug("Historical API returned %d readings for installation %s", 
-                          len(readings), self._installation_id)
+            _LOGGER.info("Historical API returned %d readings for installation %s",
+                         len(readings), self._installation_id)
             
             # Debug: Log sample reading to understand structure
             if readings and self._reading_type == "consumption":
@@ -602,8 +588,8 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 if str(r.get("meterCounterId") or "") == target_id and r.get("value") is not None
             ]
             
-            _LOGGER.debug("Filtered to %d readings for counter %s (reading_type=%s)", 
-                          len(counter_readings), counter_id, self._reading_type)
+            _LOGGER.info("Filtered to %d readings for counter %s (reading_type=%s)",
+                         len(counter_readings), counter_id, self._reading_type)
             
             if not counter_readings:
                 _LOGGER.debug("No readings found for counter %s (reading_type=%s)", counter_id, self._reading_type)
@@ -842,9 +828,14 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 data = await response.json()
                 chunk_readings = data.get("readings", [])
                 all_readings.extend(chunk_readings)
-                _LOGGER.debug(
-                    "Chunk %s → %s: %d readings", from_str, to_str, len(chunk_readings)
-                )
+                if chunk_readings:
+                    _LOGGER.info(
+                        "Chunk %s → %s: %d readings", from_str, to_str, len(chunk_readings)
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Chunk %s → %s: 0 readings", from_str, to_str
+                    )
 
             except asyncio.TimeoutError:
                 _LOGGER.warning("Timeout fetching chunk %s to %s", from_str, to_str)
