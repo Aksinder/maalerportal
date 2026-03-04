@@ -194,7 +194,9 @@
   "options": {
     "abort": {
       "fetch_more_history_done": "Klart! Historiska data täcker nu de senaste {days} dagarna. Det kan ta några minuter innan Energi-dashboarden uppdateras.",
-      "no_history_sensors": "Inga historik-sensorer hittades. Ladda om integrationen först."
+      "no_history_sensors": "Inga historik-sensorer hittades. Ladda om integrationen först.",
+      "debug_logging_enabled": "Debugloggning aktiverad på nivå {level}. Se Home Assistant-loggarna för detaljerad utdata.",
+      "debug_logging_disabled": "Debugloggning inaktiverad. Loggnivå återställd till WARNING."
     },
     "step": {
       "init": {
@@ -202,7 +204,20 @@
         "description": "Täcker för närvarande {days} dagars historik. Vad vill du göra?",
         "menu_options": {
           "settings": "Inställningar",
-          "fetch_more_history": "Hämta 30 dagar mer historik"
+          "fetch_more_history": "Hämta 30 dagar mer historik",
+          "debug_logging": "Debugloggning"
+        }
+      },
+      "debug_logging": {
+        "title": "Debugloggning",
+        "description": "Aktivera eller inaktivera detaljerad debugloggning för Målerportal-integrationen. Loggar kan ses under Inställningar → System → Loggar.",
+        "data": {
+          "enable_debug": "Aktivera debugloggning",
+          "log_level": "Loggnivå"
+        },
+        "data_description": {
+          "enable_debug": "Slå på detaljerad loggning för felsökning",
+          "log_level": "DEBUG = mest detaljerad, INFO = måttlig, WARNING = bara varningar"
         }
       },
       "settings": {

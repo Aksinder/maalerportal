@@ -194,7 +194,9 @@
   "options": {
     "abort": {
       "fetch_more_history_done": "Done! Historical data now covers the last {days} days. It may take a few minutes for the Energy Dashboard to update.",
-      "no_history_sensors": "No history sensors found. Please reload the integration first."
+      "no_history_sensors": "No history sensors found. Please reload the integration first.",
+      "debug_logging_enabled": "Debug logging enabled at level {level}. Check Home Assistant logs for detailed output.",
+      "debug_logging_disabled": "Debug logging disabled. Log level reset to WARNING."
     },
     "step": {
       "init": {
@@ -202,7 +204,20 @@
         "description": "Currently covering {days} days of history. What would you like to do?",
         "menu_options": {
           "settings": "Settings",
-          "fetch_more_history": "Fetch 30 more days of history"
+          "fetch_more_history": "Fetch 30 more days of history",
+          "debug_logging": "Debug logging"
+        }
+      },
+      "debug_logging": {
+        "title": "Debug logging",
+        "description": "Enable or disable detailed debug logging for the Målerportal integration. Logs can be viewed in Settings → System → Logs.",
+        "data": {
+          "enable_debug": "Enable debug logging",
+          "log_level": "Log level"
+        },
+        "data_description": {
+          "enable_debug": "Turn on detailed logging for troubleshooting",
+          "log_level": "DEBUG = most detailed, INFO = moderate, WARNING = only warnings"
         }
       },
       "settings": {

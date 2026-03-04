@@ -619,7 +619,7 @@ class OptionsFlow(config_entries.OptionsFlow):
         current_days = self._config_entry.options.get("history_fetched_days", 30)
         return self.async_show_menu(
             step_id="init",
-            menu_options=["settings", "fetch_more_history"],
+            menu_options=["settings", "fetch_more_history", "debug_logging"],
             description_placeholders={"days": str(current_days)},
         )
 
@@ -692,6 +692,69 @@ class OptionsFlow(config_entries.OptionsFlow):
         return self.async_abort(
             reason="fetch_more_history_done",
             description_placeholders={"days": str(from_days)},
+        )
+
+    async def async_step_debug_logging(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Enable or disable debug logging for the integration."""
+        if user_input is not None:
+            enable_debug = user_input.get("enable_debug", False)
+            log_level_str = user_input.get("log_level", "DEBUG")
+
+            # Map string to logging level
+            level_map = {
+                "DEBUG": logging.DEBUG,
+                "INFO": logging.INFO,
+                "WARNING": logging.WARNING,
+            }
+            level = level_map.get(log_level_str, logging.DEBUG)
+
+            # Get the root logger for this integration
+            integration_logger = logging.getLogger("custom_components.maalerportal")
+
+            if enable_debug:
+                integration_logger.setLevel(level)
+                _LOGGER.info(
+                    "Debug logging ENABLED for Målerportal (level: %s)", log_level_str
+                )
+                return self.async_abort(
+                    reason="debug_logging_enabled",
+                    description_placeholders={"level": log_level_str},
+                )
+            else:
+                # Reset to default (WARNING level, or let HA manage it)
+                integration_logger.setLevel(logging.WARNING)
+                _LOGGER.warning("Debug logging DISABLED for Målerportal (reset to WARNING)")
+                return self.async_abort(reason="debug_logging_disabled")
+
+        # Determine current state
+        integration_logger = logging.getLogger("custom_components.maalerportal")
+        current_level = integration_logger.getEffectiveLevel()
+        is_debug_enabled = current_level <= logging.DEBUG
+
+        # Map current level to string for default
+        level_name_map = {
+            logging.DEBUG: "DEBUG",
+            logging.INFO: "INFO",
+            logging.WARNING: "WARNING",
+        }
+        current_level_str = level_name_map.get(current_level, "DEBUG")
+
+        return self.async_show_form(
+            step_id="debug_logging",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "enable_debug",
+                        default=is_debug_enabled,
+                    ): bool,
+                    vol.Optional(
+                        "log_level",
+                        default=current_level_str,
+                    ): vol.In(["DEBUG", "INFO", "WARNING"]),
+                }
+            ),
         )
 
 

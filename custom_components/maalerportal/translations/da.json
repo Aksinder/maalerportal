@@ -194,7 +194,9 @@
   "options": {
     "abort": {
       "fetch_more_history_done": "Færdig! Historiske data dækker nu de sidste {days} dage. Det kan tage et par minutter, før Energi-dashboardet opdateres.",
-      "no_history_sensors": "Ingen historiksensorer fundet. Genindlæs integrationen først."
+      "no_history_sensors": "Ingen historiksensorer fundet. Genindlæs integrationen først.",
+      "debug_logging_enabled": "Debug-logning aktiveret på niveau {level}. Se Home Assistant-loggen for detaljeret output.",
+      "debug_logging_disabled": "Debug-logning deaktiveret. Logniveau nulstillet til WARNING."
     },
     "step": {
       "init": {
@@ -202,7 +204,20 @@
         "description": "Dækker i øjeblikket {days} dages historik. Hvad vil du gøre?",
         "menu_options": {
           "settings": "Indstillinger",
-          "fetch_more_history": "Hent 30 dage mere historik"
+          "fetch_more_history": "Hent 30 dage mere historik",
+          "debug_logging": "Debug-logning"
+        }
+      },
+      "debug_logging": {
+        "title": "Debug-logning",
+        "description": "Aktiver eller deaktiver detaljeret debug-logning for Målerportal-integrationen. Logger kan ses under Indstillinger → System → Logger.",
+        "data": {
+          "enable_debug": "Aktiver debug-logning",
+          "log_level": "Logniveau"
+        },
+        "data_description": {
+          "enable_debug": "Slå detaljeret logning til for fejlfinding",
+          "log_level": "DEBUG = mest detaljeret, INFO = moderat, WARNING = kun advarsler"
         }
       },
       "settings": {
