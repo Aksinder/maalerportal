@@ -616,7 +616,7 @@ class OptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Show the options menu."""
-        current_days = self._config_entry.options.get("history_fetched_days", 30)
+        current_days = self._config_entry.options.get("history_fetched_days", 7)
         return self.async_show_menu(
             step_id="init",
             menu_options=["settings", "fetch_more_history", "debug_logging"],
@@ -678,7 +678,7 @@ class OptionsFlow(config_entries.OptionsFlow):
             _LOGGER.warning("No history sensors found for config entry %s", self._config_entry.entry_id)
             return self.async_abort(reason="no_history_sensors")
 
-        days_fetched = entry_data.get("history_fetched_days", 30)
+        days_fetched = entry_data.get("history_fetched_days", 7)
         from_days = days_fetched + 30
         to_days = days_fetched
 

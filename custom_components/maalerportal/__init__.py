@@ -54,7 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "installations": entry.data["installations"],
         "email": entry.data.get("email", ""),
         "sensors": [],  # Will be populated by sensor platform
-        "history_fetched_days": entry.options.get("history_fetched_days", 30),
+        "history_fetched_days": entry.options.get("history_fetched_days", 7),
         "coordinators": {},  # Will store coordinators by installation_id
     }
     

@@ -450,8 +450,12 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                         except (ValueError, TypeError):
                             pass
         
-        # Schedule initial statistics update
-        self._history_task = self.hass.async_create_task(self._async_update_statistics())
+        # Schedule initial statistics update – always fetch full history on startup
+        # to ensure completeness even after re-installation (old stats may linger in DB).
+        # async_import_statistics handles duplicates gracefully.
+        self._history_task = self.hass.async_create_task(
+            self._async_update_statistics(force_full_fetch=True)
+        )
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
@@ -477,8 +481,15 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         # Mark successful update
         self._last_successful_update = now
 
-    async def _async_update_statistics(self) -> None:
-        """Fetch historical data and insert into Home Assistant statistics."""
+    async def _async_update_statistics(self, force_full_fetch: bool = False) -> None:
+        """Fetch historical data and insert into Home Assistant statistics.
+
+        Args:
+            force_full_fetch: If True, fetch up to 1 year of history regardless
+                of existing statistics. Used on initial setup to ensure complete
+                history even after re-installation (where old stats may linger
+                in the recorder DB).
+        """
         from homeassistant.components.recorder import get_instance
         from homeassistant.components.recorder.models import (
             StatisticData,
@@ -494,17 +505,17 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             if not self._statistic_id:
                 _LOGGER.debug("Skipping statistics update: entity_id not yet available")
                 return
-            
+
             counter_id = self._counter.get("meterCounterId")
             if not counter_id:
                 _LOGGER.warning("No meterCounterId available for statistics sensor")
                 return
-            
-            _LOGGER.debug("Updating statistics for counter: %s (statistic_id: %s)", 
+
+            _LOGGER.debug("Updating statistics for counter: %s (statistic_id: %s)",
                           counter_id, self._statistic_id)
-            
+
             end_date = datetime.now(timezone.utc)
-            
+
             # Check if we have existing statistics
             last_stats = await get_instance(self.hass).async_add_executor_job(
                 get_last_statistics,
@@ -514,47 +525,28 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 True,
                 {"sum"},
             )
-            
+
             has_existing_stats = bool(last_stats and self._statistic_id in last_stats)
 
-            if has_existing_stats:
-                # Check how far back existing statistics go
-                # Fetch enough stats to cover ~31 days of hourly data
-                older_stats = await get_instance(self.hass).async_add_executor_job(
-                    get_last_statistics,
-                    self.hass,
-                    750,  # ~31 days of hourly data
-                    self._statistic_id,
-                    True,
-                    {"sum"},
+            if force_full_fetch:
+                # Initial setup / restart: always fetch up to 1 year of history.
+                # async_import_statistics handles duplicates gracefully, so
+                # re-fetching already-imported data is harmless.
+                start_date = end_date - timedelta(days=365)
+                if not has_existing_stats:
+                    self._last_inserted_timestamp = None
+                _LOGGER.info(
+                    "Full history fetch: fetching up to 1 year of history in 31-day chunks"
                 )
-
-                stats_span_days = 0
-                if older_stats and self._statistic_id in older_stats:
-                    stat_list = older_stats[self._statistic_id]
-                    if stat_list:
-                        # stat_list is ordered newest first, so last entry is oldest
-                        oldest_stat = stat_list[-1]
-                        oldest_start = oldest_stat.get("start")
-                        if oldest_start is not None:
-                            if isinstance(oldest_start, datetime):
-                                oldest_dt = oldest_start
-                            elif isinstance(oldest_start, (int, float)):
-                                oldest_dt = datetime.fromtimestamp(oldest_start, tz=timezone.utc)
-                            else:
-                                oldest_dt = None
-                            if oldest_dt:
-                                stats_span_days = (end_date - oldest_dt).days
-
-                # Just fetch recent data to keep statistics current.
+            elif has_existing_stats:
+                # Periodic update: just fetch recent data to keep statistics current.
                 # Historical backfill is handled by the "Fetch 30 more days" button.
                 start_date = end_date - timedelta(days=7)
                 _LOGGER.debug(
-                    "Existing statistics span %d days, fetching last 7 days",
-                    stats_span_days,
+                    "Periodic update: fetching last 7 days",
                 )
             else:
-                # No existing stats – fetch up to 1 year of history using chunked requests
+                # No existing stats and not initial fetch – fetch up to 1 year
                 # (API limit is 31 days per request; _fetch_historical_chunked handles splitting)
                 start_date = end_date - timedelta(days=365)
                 self._last_inserted_timestamp = None
