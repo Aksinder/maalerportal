@@ -21,15 +21,25 @@ Ensure that HACS is installed.
 5. Search for and download the "Målerportal" integration.
 6. Restart Home Assistant.
 7. After the restart go to **Settings** → **Devices & Services** → **Add Integration**
-8. Search and click on "Målerportal"         
+8. Search and click on "Målerportal"
 9. You will now be prompted to log in with your Målerportal credentials
-10. Select which meters you want to add to Home Assistant (you can always add more later)
-11. **Wait 1-2 minutes** for the integration to fetch your historical meter data
+10. All meters found on your account will be pre-selected — uncheck any you don't want to add
+11. Select your currency (SEK, DKK, NOK or EUR)
+12. **Wait 1-2 minutes** for the integration to fetch your historical meter data
 
 ## Features
 
+### Multiple Addresses / Installations
+If you have multiple addresses or meters on a single Målerportal account, the integration finds all of them automatically. All installations are pre-selected during setup — simply uncheck any you don't want to include. Each meter appears as its own device in Home Assistant, labeled with its address and meter serial number.
+
 ### Multiple Accounts
 If you have meters across different Målerportal accounts, you can add the integration multiple times — once per account. Each account will appear as a separate entry in **Settings → Devices & Services**, labeled with the account email.
+
+### Currency Selection
+During setup (and later via **Configure → Settings**) you can choose which currency to use for price sensors: **SEK**, **DKK**, **NOK** or **EUR**. The default is SEK.
+
+### Automatic Historical Data
+When the integration is first set up, or when it detects that less than 30 days of statistics are stored, it automatically fetches up to 12 months of historical data. This ensures your Energy Dashboard has a full history right from the start.
 
 ### Configurable Polling Interval
 By default, the integration fetches new data every 30 minutes. You can adjust this interval:
