@@ -1,6 +1,13 @@
 __pycache__/
 .env
+.env.example
 .venv/
+.venv_backup/
 .DS_Store
+.pytest_cache/
+.claude/
 scripts/
 tests/
+pytest.ini
+requirements_test.txt
+.github/
