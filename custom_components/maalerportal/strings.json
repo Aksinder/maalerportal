@@ -232,6 +232,12 @@
       }
     }
   },
+  "issues": {
+    "missing_installation": {
+      "title": "Installation no longer in your Målerportal account",
+      "description": "Installation `{installation_id}` was previously configured but is no longer present in your Målerportal account. This can happen if the installation was removed or if the meter was replaced with a new installation ID upstream. Entities for this installation will go unavailable. To remove it from Home Assistant, reconfigure the integration via the integration's options menu."
+    }
+  },
   "services": {
     "refresh": {
       "name": "Refresh meter readings",

@@ -232,6 +232,12 @@
       }
     }
   },
+  "issues": {
+    "missing_installation": {
+      "title": "Installation findes ikke længere på din Målerportal-konto",
+      "description": "Installationen `{installation_id}` har tidligere været konfigureret, men findes ikke længere på din Målerportal-konto. Det kan skyldes, at installationen er fjernet, eller at måleren er udskiftet med et nyt installations-ID. Entiteter for installationen vil være utilgængelige. For at fjerne den fra Home Assistant, omkonfigurer integrationen via integrationens valgmenu."
+    }
+  },
   "services": {
     "refresh": {
       "name": "Opdater målerdata",

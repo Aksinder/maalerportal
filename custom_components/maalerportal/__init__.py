@@ -10,7 +10,11 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 import homeassistant.helpers.config_validation as cv
@@ -98,21 +102,47 @@ async def _fetch_fresh_installations(
     return fresh
 
 
-def _log_reconciliation_changes(
+def _missing_installation_issue_id(installation_id: str) -> str:
+    """Stable issue id used to dedupe Repair entries across restarts."""
+    return f"missing_installation_{installation_id}"
+
+
+def _surface_reconciliation_changes(
+    hass: HomeAssistant,
     missing_ids: set[str],
     serial_changes: dict[str, dict[str, tuple[Any, Any]]],
     saved: list[dict[str, Any]],
     fresh: list[dict[str, Any]],
 ) -> None:
-    """Surface reconciliation results in the log."""
+    """Surface reconciliation results: Repairs issues + log entries."""
+    saved_ids = {i.get("installationId") for i in saved}
+
+    # Create a Repairs issue per missing installation. async_create_issue is
+    # idempotent on (domain, issue_id), so a restart with the same missing
+    # installation won't spam the user — they'll see one entry in Repairs.
     for installation_id in missing_ids:
-        _LOGGER.warning(
-            "Installation %s is no longer present in the Målerportal account "
-            "(possibly removed or the meter was replaced with a new installation ID). "
-            "Entities will go unavailable. Reconfigure the integration to pick up "
-            "any new installations.",
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            _missing_installation_issue_id(installation_id),
+            is_fixable=False,
+            is_persistent=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="missing_installation",
+            translation_placeholders={"installation_id": installation_id},
+        )
+        _LOGGER.info(
+            "Installation %s is no longer present upstream — see Repairs "
+            "for cleanup instructions.",
             installation_id,
         )
+
+    # If a previously missing installation is back, clear its Repairs issue.
+    for saved_id in saved_ids:
+        if saved_id not in missing_ids:
+            ir.async_delete_issue(
+                hass, DOMAIN, _missing_installation_issue_id(saved_id)
+            )
 
     for installation_id, changes in serial_changes.items():
         if "meterSerial" in changes:
@@ -261,8 +291,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             serial_changes,
             changed,
         ) = reconcile_installations(entry.data["installations"], fresh_installations)
-        _log_reconciliation_changes(
-            missing_ids, serial_changes, entry.data["installations"], fresh_installations
+        _surface_reconciliation_changes(
+            hass,
+            missing_ids,
+            serial_changes,
+            entry.data["installations"],
+            fresh_installations,
         )
         pending_swap_ids = set(serial_changes.keys())
         if changed:
