@@ -1,5 +1,5 @@
 """DataUpdateCoordinator for Målerportal integration."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any
 
@@ -14,6 +14,13 @@ from homeassistant.helpers.update_coordinator import (
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+# Some meters return latestValue=null from /readings/latest even when the
+# historical endpoint has perfectly good data. We then backfill the
+# coordinator's response from the most recent historical reading. The
+# window is bounded by the API's per-request 31-day limit; a single
+# fetch covers all reasonably-active meters.
+_FALLBACK_HISTORY_DAYS = 31
 
 class MaalerportalCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Målerportal data."""
@@ -34,6 +41,12 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         self.installation_id = installation["installationId"]
         self.currency = currency
         self.session = async_get_clientsession(hass)
+
+        # Per-counter fallback for when /readings/latest returns null.
+        # Populated lazily from /readings/historical and refreshed only
+        # when the cache is empty for a counter that needs it. Real
+        # latestValues clear the cache as they arrive.
+        self._fallback_values: dict[str, dict[str, Any]] = {}
 
         super().__init__(
             hass,
@@ -62,7 +75,7 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                     raise UpdateFailed(f"Error communicating with API: {response.status}")
 
                 data = await response.json()
-                
+
                 # Check for valid data structure
                 if not data or "meterCounters" not in data:
                     _LOGGER.debug(
@@ -71,14 +84,107 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                     return {"meterCounters": []}
 
                 _LOGGER.debug(
-                    "Received %d meter counters for %s", 
-                    len(data.get("meterCounters", [])), 
+                    "Received %d meter counters for %s",
+                    len(data.get("meterCounters", [])),
                     self.installation_id
                 )
-                
+
+                await self._backfill_null_latest_values(data["meterCounters"])
+
                 return data
 
         except aiohttp.ClientConnectorError as err:
             raise UpdateFailed(f"Connection error: {err}") from err
         except Exception as err:
             raise UpdateFailed(f"Unexpected error: {err}") from err
+
+    async def _backfill_null_latest_values(
+        self, counters: list[dict[str, Any]]
+    ) -> None:
+        """Replace ``latestValue: null`` with the freshest historical reading.
+
+        Some Målerportal installations expose data through
+        ``/readings/historical`` only; ``/readings/latest`` returns
+        nulls. Without this fallback those sensors stay "Unknown"
+        forever even though the user can clearly see meter readings
+        elsewhere. We fetch one 31-day historical window when needed,
+        cache the result, and apply it. Live latestValues from the API
+        always win and clear the cache for that counter.
+        """
+        needs_lookup: list[str] = []
+        for counter in counters:
+            counter_id = counter.get("meterCounterId")
+            if not counter_id:
+                continue
+            if counter.get("latestValue") is None:
+                if counter_id not in self._fallback_values:
+                    needs_lookup.append(counter_id)
+            else:
+                # Real reading came in — discard any stale fallback.
+                self._fallback_values.pop(counter_id, None)
+
+        if needs_lookup:
+            await self._refresh_fallback_from_history(needs_lookup)
+
+        for counter in counters:
+            counter_id = counter.get("meterCounterId")
+            if counter.get("latestValue") is None and counter_id in self._fallback_values:
+                fb = self._fallback_values[counter_id]
+                counter["latestValue"] = fb["value"]
+                counter["latestTimestamp"] = fb["timestamp"]
+                # Marker so downstream consumers can tell live from filled.
+                counter["isFallback"] = True
+
+    async def _refresh_fallback_from_history(self, counter_ids: list[str]) -> None:
+        """Populate fallback cache for the given counters from /readings/historical."""
+        try:
+            now = datetime.now(timezone.utc)
+            from_date = (now - timedelta(days=_FALLBACK_HISTORY_DAYS)).strftime(
+                "%Y-%m-%dT00:00:00Z"
+            )
+            to_date = now.strftime("%Y-%m-%dT23:59:59Z")
+            async with self.session.post(
+                f"{self.base_url}/installations/{self.installation_id}/readings/historical",
+                json={"from": from_date, "to": to_date},
+                headers={"ApiKey": self.api_key, "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if not response.ok:
+                    _LOGGER.debug(
+                        "Fallback history fetch returned HTTP %s for %s",
+                        response.status,
+                        self.installation_id,
+                    )
+                    return
+                data = await response.json()
+        except (aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.debug("Fallback history fetch failed for %s: %s",
+                          self.installation_id, err)
+            return
+
+        readings = data.get("readings", []) if isinstance(data, dict) else []
+        for counter_id in counter_ids:
+            candidates = [
+                r for r in readings
+                if r.get("meterCounterId") == counter_id
+                and r.get("value") is not None
+                and r.get("timestamp")
+            ]
+            if not candidates:
+                continue
+            # Pick the most recent — timestamp strings sort lexicographically
+            # because they are ISO-8601 with consistent timezone offset.
+            candidates.sort(key=lambda r: r["timestamp"], reverse=True)
+            latest = candidates[0]
+            self._fallback_values[counter_id] = {
+                "value": latest["value"],
+                "timestamp": latest["timestamp"],
+            }
+            _LOGGER.info(
+                "Backfilled latestValue for counter %s on installation %s "
+                "from history: %s @ %s",
+                counter_id,
+                self.installation_id,
+                latest["value"],
+                latest["timestamp"],
+            )
