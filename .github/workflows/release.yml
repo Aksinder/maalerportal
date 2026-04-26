@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'custom_components/maalerportal/manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from manifest
+        id: version
+        env:
+          MANIFEST_PATH: custom_components/maalerportal/manifest.json
+        run: |
+          VERSION=$(python -c "import json,os; print(json.load(open(os.environ['MANIFEST_PATH']))['version'])")
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+          printf 'Detected version: %s\n' "$VERSION"
+
+      - name: Check if tag already exists
+        id: tag_check
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse --verify "refs/tags/$VERSION" >/dev/null 2>&1; then
+            printf 'exists=true\n' >> "$GITHUB_OUTPUT"
+            printf 'Tag %s already exists — skipping.\n' "$VERSION"
+          else
+            printf 'exists=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          target_commitish: ${{ github.sha }}

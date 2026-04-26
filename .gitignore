@@ -10,4 +10,3 @@ scripts/
 tests/
 pytest.ini
 requirements_test.txt
-.github/
