@@ -79,6 +79,9 @@
       "current_flow": {
         "name": "Current flow"
       },
+      "last_reading": {
+        "name": "Last reading"
+      },
       "acoustic_noise": {
         "name": "Acoustic noise"
       },

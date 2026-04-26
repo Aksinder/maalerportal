@@ -125,7 +125,7 @@ class MaalerportalBaseSensor(SensorEntity):
 
 class MaalerportalCoordinatorSensor(CoordinatorEntity[MaalerportalCoordinator], MaalerportalBaseSensor):
     """Sensor that updates via MaalerportalCoordinator."""
-    
+
     def __init__(
         self,
         coordinator: MaalerportalCoordinator,
@@ -142,7 +142,27 @@ class MaalerportalCoordinatorSensor(CoordinatorEntity[MaalerportalCoordinator], 
             coordinator.base_url,
             counter
         )
-        
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return base attributes plus the upstream latestTimestamp.
+
+        ``last_reading_at`` is the timestamp the meter itself recorded the
+        value — distinct from HA's built-in ``last_updated`` which only
+        reflects when the entity state changed locally. Useful for
+        spotting stale data when the meter hasn't reported in a while.
+        """
+        attrs = super().extra_state_attributes
+        if self._counter and self.coordinator.data:
+            our_id = self._counter.get("meterCounterId")
+            for counter in self.coordinator.data.get("meterCounters", []):
+                if counter.get("meterCounterId") == our_id:
+                    ts = counter.get("latestTimestamp")
+                    if ts:
+                        attrs["last_reading_at"] = ts
+                    break
+        return attrs
+
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
         await super().async_added_to_hass()

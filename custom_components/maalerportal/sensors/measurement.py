@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.const import (
     UnitOfEnergy,
     UnitOfVolume,
@@ -354,6 +356,64 @@ class MaalerportalCurrentFlowSensor(MaalerportalCoordinatorSensor):
                 if value is not None:
                     self._attr_native_value = round(value, 3)
                 break
+
+
+class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
+    """Diagnostic sensor that surfaces the upstream meter's last-reading
+    timestamp.
+
+    HA renders this as a relative time ("3 hours ago") thanks to
+    ``device_class=timestamp`` — making it immediately obvious when a
+    meter has gone quiet. Lives in the Diagnostic section so it doesn't
+    clutter the primary device card.
+
+    Reads from the primary counter on the installation; the timestamp
+    is the latest one reported by any of that meter's readings.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "last_reading"
+    _attr_icon = "mdi:clock-check-outline"
+
+    def __init__(self, coordinator: MaalerportalCoordinator) -> None:
+        # No specific counter — we surface the freshest timestamp seen
+        # across all counters on the installation.
+        super().__init__(coordinator, counter=None)
+        self._attr_unique_id = f"{self._installation_id}_last_reading"
+
+    @property
+    def native_value(self) -> datetime | None:
+        if not self.coordinator.data:
+            return None
+        latest: datetime | None = None
+        for counter in self.coordinator.data.get("meterCounters", []):
+            ts = counter.get("latestTimestamp")
+            if not ts:
+                continue
+            try:
+                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if latest is None or parsed > latest:
+                latest = parsed
+        return latest
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Per-counter timestamps so users can see if some counters lag."""
+        attrs: dict[str, Any] = {"installation_id": self._installation_id}
+        if not self.coordinator.data:
+            return attrs
+        per_counter: dict[str, str] = {}
+        for counter in self.coordinator.data.get("meterCounters", []):
+            counter_type = counter.get("counterType")
+            ts = counter.get("latestTimestamp")
+            if counter_type and ts:
+                per_counter[counter_type] = ts
+        if per_counter:
+            attrs["per_counter_timestamp"] = per_counter
+        return attrs
 
 
 class MaalerportalNoiseSensor(MaalerportalCoordinatorSensor):

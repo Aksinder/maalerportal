@@ -79,6 +79,9 @@
       "current_flow": {
         "name": "Aktuellt flöde"
       },
+      "last_reading": {
+        "name": "Senaste avläsning"
+      },
       "acoustic_noise": {
         "name": "Akustiskt brus"
       },

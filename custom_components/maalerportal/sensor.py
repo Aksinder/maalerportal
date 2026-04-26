@@ -26,6 +26,7 @@ from .sensors import (
     MaalerportalTempDiffSensor,
     MaalerportalHeatPowerSensor,
     MaalerportalHeatVolumeSensor,
+    MaalerportalLastReadingSensor,
     MaalerportalSecondarySensor,
 )
 
@@ -53,12 +54,17 @@ async def async_setup_entry(
         meter_counters = []
         if coordinator.data:
             meter_counters = coordinator.data.get("meterCounters", [])
-            
+
         # Create sensors based on available meter counters
         installation_sensors = create_sensors_from_counters(
             coordinator, meter_counters
         )
         sensors.extend(installation_sensors)
+
+        # One diagnostic timestamp sensor per installation showing when
+        # the upstream meter last reported a reading.
+        if meter_counters:
+            sensors.append(MaalerportalLastReadingSensor(coordinator))
         
     async_add_entities(sensors)
     
