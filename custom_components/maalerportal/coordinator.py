@@ -18,9 +18,10 @@ _LOGGER = logging.getLogger(__name__)
 # Some meters return latestValue=null from /readings/latest even when the
 # historical endpoint has perfectly good data. We then backfill the
 # coordinator's response from the most recent historical reading. The
-# window is bounded by the API's per-request 31-day limit; a single
-# fetch covers all reasonably-active meters.
-_FALLBACK_HISTORY_DAYS = 31
+# API rejects ranges longer than 31 days with HTTP 500, so we stay one
+# day under the limit to leave room for any timezone slack on either
+# end of the request window.
+_FALLBACK_HISTORY_DAYS = 30
 
 class MaalerportalCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Målerportal data."""
@@ -139,10 +140,18 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         """Populate fallback cache for the given counters from /readings/historical."""
         try:
             now = datetime.now(timezone.utc)
+            # Use precise timestamps (no midnight rounding) so the request
+            # span stays strictly inside the API's 31-day limit. With
+            # _FALLBACK_HISTORY_DAYS = 30 we get exactly 30 days, leaving
+            # room for any clock drift between client and server.
             from_date = (now - timedelta(days=_FALLBACK_HISTORY_DAYS)).strftime(
-                "%Y-%m-%dT00:00:00Z"
+                "%Y-%m-%dT%H:%M:%SZ"
             )
-            to_date = now.strftime("%Y-%m-%dT23:59:59Z")
+            to_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            _LOGGER.debug(
+                "Fetching fallback history for %s: %s -> %s (counters: %s)",
+                self.installation_id, from_date, to_date, counter_ids,
+            )
             async with self.session.post(
                 f"{self.base_url}/installations/{self.installation_id}/readings/historical",
                 json={"from": from_date, "to": to_date},
@@ -150,16 +159,20 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 if not response.ok:
-                    _LOGGER.debug(
-                        "Fallback history fetch returned HTTP %s for %s",
+                    body = await response.text()
+                    # Bump to WARNING — debug-only made this silently fail
+                    # the first time around; users need visibility.
+                    _LOGGER.warning(
+                        "Fallback history fetch returned HTTP %s for installation %s: %s",
                         response.status,
                         self.installation_id,
+                        body[:200],
                     )
                     return
                 data = await response.json()
         except (aiohttp.ClientError, TimeoutError) as err:
-            _LOGGER.debug("Fallback history fetch failed for %s: %s",
-                          self.installation_id, err)
+            _LOGGER.warning("Fallback history fetch failed for %s: %s",
+                            self.installation_id, err)
             return
 
         readings = data.get("readings", []) if isinstance(data, dict) else []
