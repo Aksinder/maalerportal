@@ -2,7 +2,11 @@
   "entity": {
     "binary_sensor": {
       "leak_alarm": {
-        "name": "Misstänkt vattenläcka"
+        "name": "Misstänkt vattenläcka",
+        "state": {
+          "off": "Ingen avvikelse",
+          "on": "Misstänkt läcka!"
+        }
       }
     },
     "sensor": {

@@ -375,6 +375,10 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         
         self._attr_unique_id = f"{self._installation_id}_{counter_type.lower()}_statistic_{suffix}"
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        # Sensor returns native_value=None on purpose (stats-only entity).
+        # Hide from the default device card so users don't see "Unknown" —
+        # it stays available for Energy Dashboard selection.
+        self._attr_entity_registry_visible_default = False
         
         # Reading type determines how we process data
         # "counter" = cumulative meter reading (use value directly)

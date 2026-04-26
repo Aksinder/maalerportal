@@ -2,7 +2,11 @@
   "entity": {
     "binary_sensor": {
       "leak_alarm": {
-        "name": "Possible leak"
+        "name": "Possible leak",
+        "state": {
+          "off": "No anomaly",
+          "on": "Suspected leak!"
+        }
       }
     },
     "sensor": {

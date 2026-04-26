@@ -2,7 +2,11 @@
   "entity": {
     "binary_sensor": {
       "leak_alarm": {
-        "name": "Mistanke om vandlækage"
+        "name": "Mistanke om vandlækage",
+        "state": {
+          "off": "Ingen afvigelse",
+          "on": "Mistænkt lækage!"
+        }
       }
     },
     "sensor": {
