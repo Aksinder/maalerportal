@@ -576,14 +576,26 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             has_existing_stats = bool(last_stats and self._statistic_id in last_stats)
 
             if force_full_fetch:
-                # Initial setup / restart: always fetch up to 1 year of history.
-                # async_import_statistics handles duplicates gracefully, so
-                # re-fetching already-imported data is harmless.
+                # Initial setup / restart / manual refresh: always fetch up to
+                # 1 year of history. async_import_statistics replaces duplicate
+                # timestamps, so re-fetching already-imported data is safe.
                 start_date = end_date - timedelta(days=365)
-                if not has_existing_stats:
-                    self._last_inserted_timestamp = None
+                # Always reset the in-memory cursor so the per-reading skip
+                # logic doesn't filter out the older data we just asked for.
+                # Without this, consumption-type meters (which restore
+                # _last_inserted_timestamp from RestoreEntity) would silently
+                # discard everything older than the previous run's last
+                # imported timestamp — i.e. no historical backfill ever.
+                self._last_inserted_timestamp = None
+                if self._reading_type == "consumption":
+                    # Rebuild the running sum from scratch so re-imported
+                    # interval values aren't double-counted on top of the
+                    # previously accumulated total.
+                    self._cumulative_sum = 0.0
                 _LOGGER.info(
-                    "Full history fetch: fetching up to 1 year of history in 31-day chunks"
+                    "Full history fetch for %s: fetching up to 1 year of "
+                    "history in 31-day chunks",
+                    self._statistic_id,
                 )
             elif has_existing_stats:
                 # Periodic update: just fetch recent data to keep statistics current.
@@ -684,8 +696,16 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     except (TypeError, ValueError):
                         prev_displayed_sum = None
             
-            # For consumption type, get existing sum from statistics to continue accumulating
-            if self._reading_type == "consumption" and self._cumulative_sum == 0.0:
+            # For consumption type, continue accumulating from where we left
+            # off — but only on periodic updates. On force_full_fetch we
+            # explicitly want to rebuild from 0 (cumulative_sum was reset
+            # above), otherwise re-imported intervals would stack on top of
+            # the existing total.
+            if (
+                self._reading_type == "consumption"
+                and not force_full_fetch
+                and self._cumulative_sum == 0.0
+            ):
                 try:
                     existing_stats = await get_instance(self.hass).async_add_executor_job(
                         get_last_statistics,

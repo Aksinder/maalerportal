@@ -219,6 +219,7 @@
   "options": {
     "abort": {
       "fetch_more_history_done": "Done! Historical data now covers the last {days} days. It may take a few minutes for the Energy Dashboard to update.",
+      "refetch_history_done": "Re-fetch triggered on {count} sensor(s). Up to 1 year of history will be re-imported in the background — check the logs and Energy Dashboard in a few minutes.",
       "no_history_sensors": "No history sensors found. Please reload the integration first.",
       "debug_logging_enabled": "Debug logging enabled at level {level}. Check Home Assistant logs for detailed output.",
       "debug_logging_disabled": "Debug logging disabled. Log level reset to WARNING."
@@ -230,6 +231,7 @@
         "menu_options": {
           "settings": "Settings",
           "fetch_more_history": "Fetch 30 more days of history",
+          "refetch_history": "Re-fetch last year of history",
           "debug_logging": "Debug logging"
         }
       },

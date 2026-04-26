@@ -741,7 +741,12 @@ class OptionsFlow(config_entries.OptionsFlow):
         current_days = self._config_entry.options.get("history_fetched_days", 7)
         return self.async_show_menu(
             step_id="init",
-            menu_options=["settings", "fetch_more_history", "debug_logging"],
+            menu_options=[
+                "settings",
+                "fetch_more_history",
+                "refetch_history",
+                "debug_logging",
+            ],
             description_placeholders={"days": str(current_days)},
         )
 
@@ -872,6 +877,45 @@ class OptionsFlow(config_entries.OptionsFlow):
         return self.async_abort(
             reason="fetch_more_history_done",
             description_placeholders={"days": str(from_days)},
+        )
+
+    async def async_step_refetch_history(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Force a full 1-year history re-fetch on every Statistic sensor.
+
+        Useful when a previous startup fetch was interrupted or when
+        the user reports gaps in their Energy Dashboard.
+        """
+        entry_data = self.hass.data.get(DOMAIN, {}).get(
+            self._config_entry.entry_id, {}
+        )
+        sensors = entry_data.get("sensors", [])
+        # Statistic sensors expose _async_update_statistics; consumption
+        # sensors don't surface stats, so we filter to the ones that do.
+        stat_sensors = [
+            s for s in sensors if hasattr(s, "_async_update_statistics")
+        ]
+        if not stat_sensors:
+            _LOGGER.warning(
+                "No statistic sensors found for config entry %s",
+                self._config_entry.entry_id,
+            )
+            return self.async_abort(reason="no_history_sensors")
+
+        for sensor in stat_sensors:
+            self.hass.async_create_task(
+                sensor._async_update_statistics(force_full_fetch=True)
+            )
+
+        _LOGGER.info(
+            "Triggered full history re-fetch on %d sensor(s) for entry %s",
+            len(stat_sensors),
+            self._config_entry.entry_id,
+        )
+        return self.async_abort(
+            reason="refetch_history_done",
+            description_placeholders={"count": str(len(stat_sensors))},
         )
 
     async def async_step_debug_logging(
