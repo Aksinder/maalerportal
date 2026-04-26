@@ -499,6 +499,66 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"email": self._email},
         )
 
+    async def _async_fetch_installations(
+        self, api_key: str
+    ) -> tuple[list[dict[str, Any]], dict[str, str], str | None]:
+        """Fetch installations from /addresses.
+
+        Returns (installations, labels_by_id, error_key) where error_key
+        is None on success, or one of "rate_limit"/"cannot_connect"/"no_meters".
+        """
+        try:
+            session = async_get_clientsession(self.hass)
+            async with session.get(
+                f"{SMARTHOME_BASE_URL}/addresses",
+                headers={"ApiKey": api_key},
+            ) as addresses_response:
+                if addresses_response.status == 429:
+                    return [], {}, "rate_limit"
+                if not addresses_response.ok:
+                    return [], {}, "cannot_connect"
+                addresses = await addresses_response.json()
+        except aiohttp.ClientError:
+            return [], {}, "cannot_connect"
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.exception("Unexpected error fetching installations: %s", err)
+            return [], {}, "cannot_connect"
+
+        installations: list[dict[str, Any]] = []
+        labels: dict[str, str] = {}
+        for address in addresses:
+            for installation in address.get("installations", []):
+                installation_id = installation.get("installationId")
+                utility_name = installation.get("utilityName", "Unknown")
+                installation_type = installation.get("installationType", "Unknown")
+                meter_serial = installation.get("meterSerial", "Unknown")
+                nickname = installation.get("nickname", "")
+
+                device_name = f"{address.get('address', 'Unknown')} - {meter_serial}"
+                if nickname:
+                    device_name += f" ({nickname})"
+
+                meter_type_label = get_meter_type_label(
+                    installation_type, self.hass.config.language
+                )
+                labels[installation_id] = f"{device_name} [{meter_type_label}]"
+
+                installations.append(
+                    {
+                        "installationId": installation_id,
+                        "address": address.get("address"),
+                        "timezone": address.get("timezone"),
+                        "installationType": installation_type,
+                        "utilityName": utility_name,
+                        "meterSerial": meter_serial,
+                        "nickname": nickname,
+                    }
+                )
+
+        if not labels:
+            return installations, labels, "no_meters"
+        return installations, labels, None
+
     async def async_step_entity_selection(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -519,64 +579,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             save_data[CONF_CURRENCY] = user_input.get(CONF_CURRENCY, DEFAULT_CURRENCY)
             return self.async_create_entry(title=f"Målerportal ({self._email})", data=save_data)
 
-        entities_with_labels: dict[str, str] = {}
-        try:
-            # Use shared session
-            session = async_get_clientsession(self.hass)
-            _LOGGER.debug("ConfigFlow session: %s. SMARTHOME_BASE_URL: %s", session, SMARTHOME_BASE_URL)
-            # Get addresses and installations
-            async with session.get(
-                f"{SMARTHOME_BASE_URL}/addresses",
-                headers={"ApiKey": self.context["apikey"]},
-            ) as addresses_response:
+        installations, entities_with_labels, error_key = await self._async_fetch_installations(
+            self.context["apikey"]
+        )
+        if error_key:
+            errors["base"] = error_key
 
-                    if addresses_response.status == 429:
-                        errors["base"] = "rate_limit"
-                    elif not addresses_response.ok:
-                        errors["base"] = "cannot_connect"
-                    else:
-                        addresses = await addresses_response.json()
-                        installations = []
-
-                        for address in addresses:
-                            for installation in address.get("installations", []):
-                                installation_id = installation.get("installationId")
-                                utility_name = installation.get("utilityName", "Unknown")
-                                installation_type = installation.get("installationType", "Unknown")
-                                meter_serial = installation.get("meterSerial", "Unknown")
-                                nickname = installation.get("nickname", "")
-
-                                # Create device name: Address - SerialNumber (+ nickname if available)
-                                device_name = f"{address.get('address', 'Unknown')} - {meter_serial}"
-                                if nickname:
-                                    device_name += f" ({nickname})"
-
-                                # Get translated meter type label
-                                meter_type_label = get_meter_type_label(installation_type, self.hass.config.language)
-                                entities_with_labels[installation_id] = f"{device_name} [{meter_type_label}]"
-                                
-                                # Store full installation data
-                                installations.append({
-                                    "installationId": installation_id,
-                                    "address": address.get("address"),
-                                    "timezone": address.get("timezone"),
-                                    "installationType": installation_type,
-                                    "utilityName": utility_name,
-                                    "meterSerial": meter_serial,
-                                    "nickname": nickname,
-                                })
-
-                        self.context["installationdata"] = installations
-                        
-                        # Check if no meters were found
-                        if not entities_with_labels:
-                            errors["base"] = "no_meters"
-
-        except CannotConnect:
-            errors["base"] = "cannot_connect"
-        except Exception as err:
-            _LOGGER.exception("Unexpected error fetching installations: %s", err)
-            errors["base"] = "cannot_connect"
+        self.context["installationdata"] = installations
 
         # If no meters found, show the form with error
         if errors.get("base") == "no_meters":
@@ -602,6 +611,119 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 extra=vol.ALLOW_EXTRA,
             ),
             errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Reconfigure flow — change selected installations and currency
+        without re-authenticating."""
+        from homeassistant.helpers import issue_registry as ir
+        from .const import DOMAIN
+
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="reconfigure_failed")
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_ids: list[str] = list(user_input.get("entity_selection", []))
+            fresh_installations: list[dict[str, Any]] = self.context.get(
+                "installationdata", []
+            )
+            fresh_by_id = {i["installationId"]: i for i in fresh_installations}
+            saved_by_id = {
+                i["installationId"]: i for i in entry.data.get("installations", [])
+            }
+
+            new_installations: list[dict[str, Any]] = []
+            for inst_id in selected_ids:
+                # Prefer fresh data; fall back to saved if user kept a
+                # missing-upstream installation in the selection.
+                if inst_id in fresh_by_id:
+                    new_installations.append(fresh_by_id[inst_id])
+                elif inst_id in saved_by_id:
+                    new_installations.append(saved_by_id[inst_id])
+
+            removed_ids = set(saved_by_id) - set(selected_ids)
+            for removed_id in removed_ids:
+                # Clear any Repairs issue we created for this installation.
+                ir.async_delete_issue(
+                    self.hass, DOMAIN, f"missing_installation_{removed_id}"
+                )
+
+            new_data = {
+                **entry.data,
+                "installations": new_installations,
+                CONF_CURRENCY: user_input.get(
+                    CONF_CURRENCY,
+                    entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
+                ),
+            }
+            self.hass.config_entries.async_update_entry(entry, data=new_data)
+            await self.hass.config_entries.async_reload(entry.entry_id)
+            return self.async_abort(reason="reconfigure_successful")
+
+        # Build the form. Pre-select all currently saved installations
+        # (including ones that are missing upstream so the user can keep
+        # or drop them).
+        api_key = entry.data["api_key"]
+        fresh_installations, fresh_labels, error_key = await self._async_fetch_installations(
+            api_key
+        )
+        if error_key and error_key != "no_meters":
+            errors["base"] = error_key
+
+        saved_by_id = {
+            i["installationId"]: i for i in entry.data.get("installations", [])
+        }
+        fresh_by_id = {i["installationId"]: i for i in fresh_installations}
+
+        labels: dict[str, str] = dict(fresh_labels)
+        # Surface saved-but-missing installations with a clear marker so
+        # the user knows what to uncheck.
+        for saved_id, saved_inst in saved_by_id.items():
+            if saved_id in fresh_by_id:
+                continue
+            address = saved_inst.get("address") or "Unknown"
+            serial = saved_inst.get("meterSerial") or "Unknown"
+            labels[saved_id] = f"{address} - {serial} (no longer in account)"
+
+        self.context["installationdata"] = fresh_installations
+
+        if not labels:
+            return self.async_show_form(
+                step_id="reconfigure",
+                data_schema=vol.Schema({}),
+                errors={"base": "no_meters"},
+            )
+
+        default_selection = list(saved_by_id.keys())
+        current_currency = entry.options.get(
+            CONF_CURRENCY,
+            entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        "entity_selection",
+                        default=default_selection,
+                    ): cv.multi_select(labels),
+                    vol.Optional(
+                        CONF_CURRENCY,
+                        default=current_currency,
+                    ): vol.In(SUPPORTED_CURRENCIES),
+                },
+                extra=vol.ALLOW_EXTRA,
+            ),
+            errors=errors,
+            description_placeholders={
+                "email": entry.data.get("email", ""),
+            },
         )
 
 

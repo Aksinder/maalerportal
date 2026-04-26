@@ -131,7 +131,9 @@
   },
   "config": {
     "abort": {
-      "already_configured": "This account is already configured"
+      "already_configured": "This account is already configured",
+      "reconfigure_successful": "Reconfiguration saved",
+      "reconfigure_failed": "Could not load the existing configuration"
     },
     "error": {
       "cannot_connect": "Failed to connect",
@@ -187,6 +189,14 @@
         "description": "Select which meters to add to Home Assistant",
         "data": {
           "entity_selection": "Meters"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Målerportal",
+        "description": "Logged in as {email}. Adjust which meters are active and the displayed currency. Installations marked \"no longer in account\" can be unchecked to remove them.",
+        "data": {
+          "entity_selection": "Meters",
+          "currency": "Currency"
         }
       }
     }

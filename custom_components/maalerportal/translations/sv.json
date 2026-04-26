@@ -131,7 +131,9 @@
   },
   "config": {
     "abort": {
-      "already_configured": "Det här kontot är redan konfigurerat"
+      "already_configured": "Det här kontot är redan konfigurerat",
+      "reconfigure_successful": "Omkonfigurering sparad",
+      "reconfigure_failed": "Kunde inte ladda den befintliga konfigurationen"
     },
     "error": {
       "cannot_connect": "Kunde inte ansluta",
@@ -187,6 +189,14 @@
         "description": "Välj vilka mätare som ska läggas till i Home Assistant",
         "data": {
           "entity_selection": "Mätare"
+        }
+      },
+      "reconfigure": {
+        "title": "Omkonfigurera Målerportal",
+        "description": "Inloggad som {email}. Välj vilka mätare som ska vara aktiva och vilken valuta som ska visas. Installationer märkta \"finns inte längre i kontot\" kan kryssas av för att tas bort.",
+        "data": {
+          "entity_selection": "Mätare",
+          "currency": "Valuta"
         }
       }
     }
