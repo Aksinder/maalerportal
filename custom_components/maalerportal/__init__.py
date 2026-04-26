@@ -178,6 +178,36 @@ def _surface_reconciliation_changes(
         )
 
 
+def _hide_legacy_statistic_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Migrate visibility for stats-only sensors created before the
+    ``entity_registry_visible_default = False`` change.
+
+    ``entity_registry_visible_default`` only controls the default for
+    NEW entities; existing entries keep whatever visibility they had.
+    Find any of our statistic sensors that are still visible by default
+    (``hidden_by is None``) and hide them via the integration so the
+    user's device card stops showing the "Unknown" eyesore. Users who
+    explicitly un-hid them are respected (we only change `None`).
+    """
+    entity_registry = er.async_get(hass)
+    for entity in list(entity_registry.entities.values()):
+        if entity.config_entry_id != entry.entry_id:
+            continue
+        if entity.domain != "sensor":
+            continue
+        if "_statistic_" not in (entity.unique_id or ""):
+            continue
+        if entity.hidden_by is None:
+            entity_registry.async_update_entity(
+                entity.entity_id,
+                hidden_by=er.RegistryEntryHider.INTEGRATION,
+            )
+            _LOGGER.info(
+                "Hid legacy stats-only entity %s from default device card",
+                entity.entity_id,
+            )
+
+
 def _update_device_registry(
     hass: HomeAssistant, entry: ConfigEntry, installations: list[dict[str, Any]]
 ) -> None:
@@ -284,6 +314,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     base_url = entry.data["smarthome_base_url"]
     api_key = entry.data["api_key"]
     session = async_get_clientsession(hass)
+
+    # One-shot migration: hide statistic sensors that pre-date the
+    # entity_registry_visible_default change (idempotent).
+    _hide_legacy_statistic_entities(hass, entry)
 
     # Reconcile saved installations against the API so that meter swaps,
     # nickname/address edits etc. are picked up automatically at startup.

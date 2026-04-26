@@ -156,8 +156,17 @@ class MaalerportalLeakAlarmSensor(
         return attrs
 
     async def async_added_to_hass(self) -> None:
-        """Restore the elevated-since timestamp across restarts so a
-        long-running leak isn't reset by every HA restart."""
+        """Restore alarm state across restarts so a long-running leak
+        isn't reset by every HA restart.
+
+        Restores both the elevated-since timestamp (drives is_on) and
+        the latest noise reading (so the attribute is populated before
+        the first post-restart coordinator update arrives). After
+        restoring, we run the coordinator update with allow_clear=False
+        so a single post-restart low reading can't immediately clear a
+        legitimately-restored alarm; the next regular coordinator
+        refresh applies the normal logic.
+        """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state is not None:
@@ -168,15 +177,22 @@ class MaalerportalLeakAlarmSensor(
                         self._first_elevated = datetime.fromisoformat(ts)
                     except (TypeError, ValueError):
                         self._first_elevated = None
+                current_value = last_state.attributes.get("current_value_hz")
+                if current_value is not None:
+                    try:
+                        self._latest_value = float(current_value)
+                    except (TypeError, ValueError):
+                        pass
             # Remember prior alarm state so a HA restart while the alarm
             # is already ON doesn't trigger a duplicate notification.
             self._was_on = last_state.state == "on"
         if self.coordinator.data:
-            self._update_from_coordinator()
+            self._update_from_coordinator(allow_clear=False)
+        self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self._update_from_coordinator()
+        self._update_from_coordinator(allow_clear=True)
         is_on_now = bool(self.is_on)
         if is_on_now and not self._was_on:
             self._hass.async_create_task(self._async_fire_notification())
@@ -232,7 +248,16 @@ class MaalerportalLeakAlarmSensor(
                 err,
             )
 
-    def _update_from_coordinator(self) -> None:
+    def _update_from_coordinator(self, *, allow_clear: bool = True) -> None:
+        """Update internal state from the latest coordinator data.
+
+        ``allow_clear`` controls whether a sub-threshold reading clears
+        ``_first_elevated``. The first post-restore call passes False so
+        a restored elevated state survives the initial coordinator read
+        even if the meter happens to currently be quiet — without this,
+        the just-restored alarm would flip to OK on the first refresh
+        and we'd lose the legitimate prior state.
+        """
         if not self.coordinator.data:
             return
         for counter in self.coordinator.data.get("meterCounters", []):
@@ -249,7 +274,7 @@ class MaalerportalLeakAlarmSensor(
             if value >= self._threshold_hz:
                 if self._first_elevated is None:
                     self._first_elevated = datetime.now(timezone.utc)
-            else:
+            elif allow_clear:
                 if self._first_elevated is not None:
                     _LOGGER.debug(
                         "Acoustic noise on %s dropped below threshold "
