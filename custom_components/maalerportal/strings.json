@@ -254,14 +254,18 @@
           "acoustic_noise_threshold": "Leak alarm threshold (Hz)",
           "acoustic_noise_sustained_hours": "Leak alarm sustained duration (hours)",
           "leak_notify_enabled": "Send notification on leak alarm",
-          "leak_notify_service": "Notification service"
+          "leak_notify_service": "Notification service",
+          "stale_data_factor": "Stale-data threshold multiplier",
+          "stale_data_fallback_hours": "Stale-data fallback (hours, used until cadence is learned)"
         },
         "data_description": {
           "polling_interval": "How often to fetch new meter readings (15-120 minutes)",
           "acoustic_noise_threshold": "Acoustic noise level above which a leak is suspected. Default 30 Hz; raise it if you get false alarms.",
           "acoustic_noise_sustained_hours": "How long the noise must stay above the threshold before the leak alarm turns on. Filters out brief spikes from normal use.",
           "leak_notify_enabled": "If on, the integration sends a notification when the leak alarm trips (off → on).",
-          "leak_notify_service": "Service to call as 'domain.service'. Default 'persistent_notification.create' shows a card in HA. Use 'notify.mobile_app_<your_device>' for push to your phone."
+          "leak_notify_service": "Service to call as 'domain.service'. Default 'persistent_notification.create' shows a card in HA. Use 'notify.mobile_app_<your_device>' for push to your phone.",
+          "stale_data_factor": "How many times longer than the meter's observed reporting interval before flagging it as stale. 3.0 = alarm at ~3× the median delay between readings.",
+          "stale_data_fallback_hours": "Threshold used during the first few hours after install, before the integration has learned the meter's reporting cadence."
         }
       }
     }
@@ -270,6 +274,10 @@
     "missing_installation": {
       "title": "Installation no longer in your Målerportal account",
       "description": "Installation `{installation_id}` was previously configured but is no longer present in your Målerportal account. This can happen if the installation was removed or if the meter was replaced with a new installation ID upstream. Entities for this installation will go unavailable. To remove it from Home Assistant, reconfigure the integration via the integration's options menu."
+    },
+    "stale_data": {
+      "title": "Meter has not reported recently",
+      "description": "{installation} has not delivered new readings for {hours_since} hours. Based on its observed reporting cadence (~{expected_hours}h between readings) the threshold is {threshold_hours}h. Possible causes: communication outage at the utility, mounted meter battery low, or the meter was disconnected. Check upstream and adjust the threshold under Settings → Settings if you want to be alerted earlier or later."
     }
   },
   "services": {

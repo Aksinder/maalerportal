@@ -27,6 +27,11 @@ from .reconcile import (
     find_new_installations,
     reconcile_installations,
 )
+from .stale_monitor import (
+    StaleDataStore,
+    async_check_stale_data,
+    attach_stale_monitor,
+)
 
 # Storage for meter offsets — kept separate from entry.data so updates
 # don't trigger config-entry reload listeners.
@@ -315,6 +320,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     offset_store = MeterOffsetStore(hass, entry.entry_id)
     await offset_store.async_load()
 
+    # Stale-data monitor — observed-timestamp ring buffer per installation,
+    # used to auto-tune the "no recent data" Repairs threshold.
+    stale_store = StaleDataStore(hass, entry.entry_id)
+    await stale_store.async_load()
+
     # `pending_swap_installations` lists installations whose meter serial
     # just changed; their statistic sensors recompute the offset on next run.
     hass.data[DOMAIN][entry.entry_id] = {
@@ -325,6 +335,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "history_fetched_days": entry.options.get("history_fetched_days", 7),
         "coordinators": {},  # Will store coordinators by installation_id
         "offset_store": offset_store,
+        "stale_store": stale_store,
+        "stale_monitor_unsubs": [],
         "pending_swap_installations": pending_swap_ids,
     }
 
@@ -364,6 +376,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_config_entry_first_refresh()
 
         hass.data[DOMAIN][entry.entry_id]["coordinators"][installation_id] = coordinator
+
+        # Re-evaluate stale-data state right away (before subscribing
+        # so the listener doesn't double-fire on first run) and then
+        # subscribe to keep it current on every coordinator refresh.
+        await async_check_stale_data(hass, entry, coordinator, stale_store)
+        unsub = attach_stale_monitor(hass, entry, coordinator, stale_store)
+        hass.data[DOMAIN][entry.entry_id]["stale_monitor_unsubs"].append(unsub)
     
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
@@ -461,6 +480,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok and DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
+        store = hass.data[DOMAIN][entry.entry_id]
+        for unsub in store.get("stale_monitor_unsubs", []):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok

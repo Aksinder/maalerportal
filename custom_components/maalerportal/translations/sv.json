@@ -254,14 +254,18 @@
           "acoustic_noise_threshold": "Larm-tröskel akustiskt brus (Hz)",
           "acoustic_noise_sustained_hours": "Tid över tröskel innan larm (timmar)",
           "leak_notify_enabled": "Skicka notifiering vid läckagelarm",
-          "leak_notify_service": "Notifieringstjänst"
+          "leak_notify_service": "Notifieringstjänst",
+          "stale_data_factor": "Försenad-data-tröskel (multiplikator)",
+          "stale_data_fallback_hours": "Tillfällig försenad-data-tröskel (timmar, används tills frekvensen lärts in)"
         },
         "data_description": {
           "polling_interval": "Hur ofta nya mätardata ska hämtas (15-120 minuter)",
           "acoustic_noise_threshold": "Akustisk brusnivå som indikerar misstänkt läckage. Standard 30 Hz — höj om du får falsklarm.",
           "acoustic_noise_sustained_hours": "Hur länge bruset måste hålla sig över tröskeln innan larmet tänds. Filtrerar bort kortvariga ljudtoppar från normal vattenanvändning.",
           "leak_notify_enabled": "Om aktiverad skickar integrationen en notifiering när larmet växlar från av till på.",
-          "leak_notify_service": "Tjänst att anropa i formatet 'domain.service'. Standard 'persistent_notification.create' visar ett kort i HA. Använd 'notify.mobile_app_<din_enhet>' för pushnotis till mobil."
+          "leak_notify_service": "Tjänst att anropa i formatet 'domain.service'. Standard 'persistent_notification.create' visar ett kort i HA. Använd 'notify.mobile_app_<din_enhet>' för pushnotis till mobil.",
+          "stale_data_factor": "Hur många gånger längre än mätarens observerade rapporteringsfrekvens som ska tolereras innan den flaggas som försenad. 3.0 = larm vid ~3× median-tiden mellan avläsningar.",
+          "stale_data_fallback_hours": "Tröskel som används de första timmarna efter installation, innan integrationen lärt sig mätarens rapporteringsfrekvens."
         }
       }
     }
@@ -270,6 +274,10 @@
     "missing_installation": {
       "title": "Installation finns inte längre i ditt Målerportal-konto",
       "description": "Installationen `{installation_id}` har tidigare konfigurerats men finns inte längre i ditt Målerportal-konto. Det kan bero på att installationen tagits bort eller att mätaren bytts ut till ett nytt installations-ID. Entiteter för installationen kommer att vara otillgängliga. För att ta bort den från Home Assistant, omkonfigurera integrationen via integrationens alternativmeny."
+    },
+    "stale_data": {
+      "title": "Mätaren har inte rapporterat på länge",
+      "description": "{installation} har inte levererat nya avläsningar på {hours_since} timmar. Baserat på dess observerade rapporteringsfrekvens (~{expected_hours}h mellan avläsningar) är tröskeln {threshold_hours}h. Möjliga orsaker: kommunikationsavbrott hos leverantören, batteri på upphällningen, eller att mätaren kopplats bort. Kontrollera uppströms eller justera tröskeln under Settings → Inställningar om du vill larmas tidigare eller senare."
     }
   },
   "services": {

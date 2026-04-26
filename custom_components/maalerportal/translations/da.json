@@ -254,14 +254,18 @@
           "acoustic_noise_threshold": "Lækage-alarm tærskel (Hz)",
           "acoustic_noise_sustained_hours": "Tid over tærskel før alarm (timer)",
           "leak_notify_enabled": "Send notifikation ved lækagealarm",
-          "leak_notify_service": "Notifikationstjeneste"
+          "leak_notify_service": "Notifikationstjeneste",
+          "stale_data_factor": "Forsinkede-data-tærskel (multiplikator)",
+          "stale_data_fallback_hours": "Foreløbig tærskel (timer, indtil kadencen er lært)"
         },
         "data_description": {
           "polling_interval": "Hvor ofte der skal hentes nye målerdata (15-120 minutter)",
           "acoustic_noise_threshold": "Akustisk støjniveau som indikerer mistanke om lækage. Standard 30 Hz — øg ved falske alarmer.",
           "acoustic_noise_sustained_hours": "Hvor længe støjen skal forblive over tærsklen før alarmen tændes. Filtrerer korte spidser fra normal brug.",
           "leak_notify_enabled": "Hvis aktiveret sender integrationen en notifikation når alarmen skifter fra fra til til.",
-          "leak_notify_service": "Tjeneste at kalde i formatet 'domain.service'. Standard 'persistent_notification.create' viser et kort i HA. Brug 'notify.mobile_app_<din_enhed>' til push til mobil."
+          "leak_notify_service": "Tjeneste at kalde i formatet 'domain.service'. Standard 'persistent_notification.create' viser et kort i HA. Brug 'notify.mobile_app_<din_enhed>' til push til mobil.",
+          "stale_data_factor": "Hvor mange gange længere end målerens observerede rapporteringsinterval før den markeres som forsinket. 3.0 = alarm ved ~3× median-forsinkelsen mellem aflæsninger.",
+          "stale_data_fallback_hours": "Tærskel brugt de første timer efter installation, før integrationen har lært målerens rapporteringskadence."
         }
       }
     }
@@ -270,6 +274,10 @@
     "missing_installation": {
       "title": "Installation findes ikke længere på din Målerportal-konto",
       "description": "Installationen `{installation_id}` har tidligere været konfigureret, men findes ikke længere på din Målerportal-konto. Det kan skyldes, at installationen er fjernet, eller at måleren er udskiftet med et nyt installations-ID. Entiteter for installationen vil være utilgængelige. For at fjerne den fra Home Assistant, omkonfigurer integrationen via integrationens valgmenu."
+    },
+    "stale_data": {
+      "title": "Måleren har ikke rapporteret for nylig",
+      "description": "{installation} har ikke leveret nye aflæsninger i {hours_since} timer. Baseret på dens observerede rapporteringskadence (~{expected_hours}t mellem aflæsninger) er tærsklen {threshold_hours}t. Mulige årsager: kommunikationsfejl hos forsyningen, batteri ved at løbe ud, eller at måleren er afbrudt. Tjek opstrøms og juster tærsklen under Settings → Indstillinger hvis du vil advares tidligere eller senere."
     }
   },
   "services": {

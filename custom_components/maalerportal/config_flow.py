@@ -758,6 +758,12 @@ class OptionsFlow(config_entries.OptionsFlow):
             DEFAULT_NOTIFY_SERVICE,
             DEFAULT_SUSTAINED_HOURS,
         )
+        from .stale_monitor import (
+            CONF_STALE_FACTOR,
+            CONF_STALE_FALLBACK_HOURS,
+            DEFAULT_STALE_FACTOR,
+            DEFAULT_STALE_FALLBACK_HOURS,
+        )
 
         if user_input is not None:
             # Preserve history_fetched_days when saving other settings
@@ -784,6 +790,12 @@ class OptionsFlow(config_entries.OptionsFlow):
         )
         current_notify_service = self._config_entry.options.get(
             CONF_NOTIFY_SERVICE, DEFAULT_NOTIFY_SERVICE
+        )
+        current_stale_factor = self._config_entry.options.get(
+            CONF_STALE_FACTOR, DEFAULT_STALE_FACTOR
+        )
+        current_stale_fallback = self._config_entry.options.get(
+            CONF_STALE_FALLBACK_HOURS, DEFAULT_STALE_FALLBACK_HOURS
         )
 
         return self.async_show_form(
@@ -817,6 +829,14 @@ class OptionsFlow(config_entries.OptionsFlow):
                         CONF_NOTIFY_SERVICE,
                         default=current_notify_service,
                     ): str,
+                    vol.Optional(
+                        CONF_STALE_FACTOR,
+                        default=current_stale_factor,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=1.5, max=10.0)),
+                    vol.Optional(
+                        CONF_STALE_FALLBACK_HOURS,
+                        default=current_stale_fallback,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=168.0)),
                 }
             ),
         )
