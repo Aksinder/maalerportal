@@ -220,9 +220,16 @@
     "abort": {
       "fetch_more_history_done": "Done! Historical data now covers the last {days} days. It may take a few minutes for the Energy Dashboard to update.",
       "refetch_history_done": "Re-fetch triggered on {count} sensor(s). Up to 1 year of history will be re-imported in the background — check the logs and Energy Dashboard in a few minutes.",
+      "migrate_meter_history_done": "Migration applied. Offset {offset} added to all imports for the target so its chart continues seamlessly from the source. Re-import is running in the background.",
+      "not_enough_candidates": "Need at least two meter entities to migrate between. Add or restore the relevant installations first.",
       "no_history_sensors": "No history sensors found. Please reload the integration first.",
       "debug_logging_enabled": "Debug logging enabled at level {level}. Check Home Assistant logs for detailed output.",
       "debug_logging_disabled": "Debug logging disabled. Log level reset to WARNING."
+    },
+    "error": {
+      "same_entity": "Source and target must be different entities.",
+      "missing_selection": "Please select both a source and a target entity.",
+      "migration_failed": "Could not compute or apply the offset. The source needs at least one stored statistic and the target needs at least one as well — check the logs for details."
     },
     "step": {
       "init": {
@@ -232,6 +239,7 @@
           "settings": "Settings",
           "fetch_more_history": "Fetch 30 more days of history",
           "refetch_history": "Re-fetch last year of history",
+          "migrate_meter_history": "Migrate previous meter (after meter swap)",
           "debug_logging": "Debug logging"
         }
       },
@@ -245,6 +253,18 @@
         "data_description": {
           "enable_debug": "Turn on detailed logging for troubleshooting",
           "log_level": "DEBUG = most detailed, INFO = moderate, WARNING = only warnings"
+        }
+      },
+      "migrate_meter_history": {
+        "title": "Migrate previous meter",
+        "description": "When the upstream installation ID changed during a meter swap, the new entity starts its history from scratch instead of continuing the old chart. Pick the source (the orphaned/old entity that holds the previous history) and the target (the current active entity). The integration will compute an offset so the target's chart continues seamlessly from where the source left off.",
+        "data": {
+          "source_entity": "Source (old/orphan)",
+          "target_entity": "Target (current/active)"
+        },
+        "data_description": {
+          "source_entity": "The entity that holds the historical data from the previous meter — usually shows as 'unavailable' on its device card.",
+          "target_entity": "The entity that started fresh after the swap — usually shows the current low meter reading."
         }
       },
       "settings": {

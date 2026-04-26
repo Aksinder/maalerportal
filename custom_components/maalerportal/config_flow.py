@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
@@ -745,6 +746,7 @@ class OptionsFlow(config_entries.OptionsFlow):
                 "settings",
                 "fetch_more_history",
                 "refetch_history",
+                "migrate_meter_history",
                 "debug_logging",
             ],
             description_placeholders={"days": str(current_days)},
@@ -917,6 +919,202 @@ class OptionsFlow(config_entries.OptionsFlow):
             reason="refetch_history_done",
             description_placeholders={"count": str(len(stat_sensors))},
         )
+
+    async def async_step_migrate_meter_history(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Bridge orphan history to a current entity.
+
+        When a meter swap also changes the upstream installationId
+        (e.g. Region Gotland sometimes does this), reconciliation
+        cannot apply the offset automatically because the entities
+        are separate. This step computes the offset from the source
+        entity's last recorded sum and the target entity's first
+        recorded state, persists it on the target's StatisticSensor,
+        and triggers a force_full_fetch so all imported stats land
+        with the offset applied — making the chart continuous.
+        """
+        errors: dict[str, str] = {}
+        registry = er.async_get(self.hass)
+
+        # Candidate entities: only the meter-history-bearing ones under
+        # this entry. Both Main sensors and StatisticSensors are eligible.
+        candidates: dict[str, str] = {}
+        for entity in registry.entities.values():
+            if entity.config_entry_id != self._config_entry.entry_id:
+                continue
+            unique = entity.unique_id or ""
+            if not (unique.endswith("_main") or "_statistic_primary" in unique):
+                continue
+            label = entity.original_name or entity.name or entity.entity_id
+            candidates[entity.entity_id] = f"{label}  ({entity.entity_id})"
+
+        if len(candidates) < 2:
+            return self.async_abort(reason="not_enough_candidates")
+
+        if user_input is not None:
+            source_eid = user_input.get("source_entity")
+            target_eid = user_input.get("target_entity")
+            if not source_eid or not target_eid:
+                errors["base"] = "missing_selection"
+            elif source_eid == target_eid:
+                errors["base"] = "same_entity"
+            else:
+                offset_value = await self._migrate_history_offset(
+                    source_eid, target_eid
+                )
+                if offset_value is None:
+                    errors["base"] = "migration_failed"
+                else:
+                    return self.async_abort(
+                        reason="migrate_meter_history_done",
+                        description_placeholders={
+                            "offset": f"{offset_value:.3f}",
+                            "source": source_eid,
+                            "target": target_eid,
+                        },
+                    )
+
+        return self.async_show_form(
+            step_id="migrate_meter_history",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("source_entity"): vol.In(candidates),
+                    vol.Required("target_entity"): vol.In(candidates),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def _migrate_history_offset(
+        self, source_eid: str, target_eid: str
+    ) -> float | None:
+        """Compute, persist and apply an offset that makes target's
+        future stats continue numerically from source's last sum.
+
+        Returns the offset value on success, None on failure.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            get_last_statistics,
+            statistics_during_period,
+        )
+
+        instance = get_instance(self.hass)
+
+        # Source: latest sum (where the chart left off).
+        source_stats = await instance.async_add_executor_job(
+            get_last_statistics,
+            self.hass,
+            1,
+            source_eid,
+            True,
+            {"state", "sum"},
+        )
+        rows = source_stats.get(source_eid, []) if isinstance(source_stats, dict) else []
+        if not rows:
+            _LOGGER.error("Migration: no stats available for source %s", source_eid)
+            return None
+        source_endpoint = float(rows[0].get("sum") or rows[0].get("state") or 0.0)
+
+        # Target: earliest state (where the new chart starts).
+        target_stats = await instance.async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            datetime.now(timezone.utc) - timedelta(days=365),
+            datetime.now(timezone.utc),
+            [target_eid],
+            "hour",
+            None,
+            {"state"},
+        )
+        target_rows = target_stats.get(target_eid, []) if isinstance(target_stats, dict) else []
+        if not target_rows:
+            _LOGGER.error("Migration: no stats available for target %s", target_eid)
+            return None
+        target_first_state = float(target_rows[0].get("state") or 0.0)
+
+        offset = source_endpoint - target_first_state
+
+        # Find the StatisticSensor we need to apply the offset to. The
+        # target_eid might be the Main sensor (Vattenmätaravläsning) — in
+        # that case we resolve to the corresponding StatisticSensor on the
+        # same installation, since that's where _meter_offset lives.
+        store = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id, {})
+        sensors = store.get("sensors", [])
+
+        target_sensor = next(
+            (
+                s for s in sensors
+                if hasattr(s, "_async_update_statistics")
+                and getattr(s, "entity_id", None) == target_eid
+            ),
+            None,
+        )
+        if target_sensor is None:
+            target_installation = self._installation_id_from_entity(target_eid)
+            if target_installation:
+                target_sensor = next(
+                    (
+                        s for s in sensors
+                        if hasattr(s, "_async_update_statistics")
+                        and getattr(s, "_installation_id", None) == target_installation
+                    ),
+                    None,
+                )
+        if target_sensor is None:
+            _LOGGER.error(
+                "Migration: could not locate StatisticSensor for target %s",
+                target_eid,
+            )
+            return None
+
+        counter = getattr(target_sensor, "_counter", None) or {}
+        counter_id = counter.get("meterCounterId")
+        installation_id = getattr(target_sensor, "_installation_id", None)
+        if not counter_id or not installation_id:
+            return None
+
+        offset_store = store.get("offset_store")
+        if offset_store is None:
+            return None
+        await offset_store.async_set(installation_id, counter_id, offset)
+        target_sensor._meter_offset = offset
+
+        # Re-import target's full year so all rows pick up the new offset.
+        self.hass.async_create_task(
+            target_sensor._async_update_statistics(force_full_fetch=True)
+        )
+
+        _LOGGER.info(
+            "Meter swap migration: applied offset %.4f to %s (from %s)",
+            offset,
+            target_eid,
+            source_eid,
+        )
+        return offset
+
+    def _installation_id_from_entity(self, entity_id: str) -> str | None:
+        """Extract installation_id from a Maalerportal entity's unique_id.
+
+        Main sensor unique_id is ``{installation_id}_main``; the
+        StatisticSensor variant is ``{installation_id}_{type}_statistic_{primary|secondary}``.
+        """
+        registry = er.async_get(self.hass)
+        entity = registry.async_get(entity_id)
+        if not entity or not entity.unique_id:
+            return None
+        unique = entity.unique_id
+        if unique.endswith("_main"):
+            return unique[: -len("_main")]
+        if "_statistic_" in unique:
+            # everything before the second-to-last underscore-separated chunk
+            head, _, _ = unique.rpartition("_statistic_")
+            head = head.rsplit("_", 1)[0]  # drop the counter type
+            return head or None
+        return None
 
     async def async_step_debug_logging(
         self, user_input: dict[str, Any] | None = None

@@ -220,9 +220,16 @@
     "abort": {
       "fetch_more_history_done": "Klart! Historiska data täcker nu de senaste {days} dagarna. Det kan ta några minuter innan Energi-dashboarden uppdateras.",
       "refetch_history_done": "Om-fetch startad på {count} sensor(er). Upp till 1 års historik importeras om i bakgrunden — kontrollera loggarna och Energi-dashboarden om några minuter.",
+      "migrate_meter_history_done": "Migration tillämpad. Offset {offset} adderat till alla imports för target så dess graf fortsätter sömlöst från källan. Om-import körs i bakgrunden.",
+      "not_enough_candidates": "Behöver minst två mätar-entiteter för att kunna migrera. Lägg till eller återställ relevanta installationer först.",
       "no_history_sensors": "Inga historik-sensorer hittades. Ladda om integrationen först.",
       "debug_logging_enabled": "Debugloggning aktiverad på nivå {level}. Se Home Assistant-loggarna för detaljerad utdata.",
       "debug_logging_disabled": "Debugloggning inaktiverad. Loggnivå återställd till WARNING."
+    },
+    "error": {
+      "same_entity": "Källa och mål måste vara olika entiteter.",
+      "missing_selection": "Välj både en källa och en mål-entitet.",
+      "migration_failed": "Kunde inte beräkna eller tillämpa offset. Källan måste ha minst en lagrad statistikrad och målet likaså — kolla loggarna för detaljer."
     },
     "step": {
       "init": {
@@ -232,6 +239,7 @@
           "settings": "Inställningar",
           "fetch_more_history": "Hämta 30 dagar mer historik",
           "refetch_history": "Hämta om senaste året",
+          "migrate_meter_history": "Migrera tidigare mätare (efter mätarbyte)",
           "debug_logging": "Debugloggning"
         }
       },
@@ -245,6 +253,18 @@
         "data_description": {
           "enable_debug": "Slå på detaljerad loggning för felsökning",
           "log_level": "DEBUG = mest detaljerad, INFO = måttlig, WARNING = bara varningar"
+        }
+      },
+      "migrate_meter_history": {
+        "title": "Migrera tidigare mätare",
+        "description": "När installations-ID:t ändrades vid ett mätarbyte börjar den nya entiteten sin historik från noll istället för att fortsätta den gamla grafen. Välj källa (den orphanade/gamla entiteten med tidigare historik) och mål (den nuvarande aktiva entiteten). Integrationen beräknar en offset så målets graf fortsätter sömlöst där källan slutade.",
+        "data": {
+          "source_entity": "Källa (gammal/orphan)",
+          "target_entity": "Mål (nuvarande/aktiv)"
+        },
+        "data_description": {
+          "source_entity": "Entiteten som har historiken från den tidigare mätaren — visas oftast som 'unavailable' på sin device-vy.",
+          "target_entity": "Entiteten som startade om från noll efter bytet — visar vanligtvis det nuvarande låga mätarvärdet."
         }
       },
       "settings": {

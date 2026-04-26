@@ -220,9 +220,16 @@
     "abort": {
       "fetch_more_history_done": "Færdig! Historiske data dækker nu de sidste {days} dage. Det kan tage et par minutter, før Energi-dashboardet opdateres.",
       "refetch_history_done": "Gen-hentning startet på {count} sensor(er). Op til 1 års historik importeres igen i baggrunden — tjek loggen og Energi-dashboardet om nogle minutter.",
+      "migrate_meter_history_done": "Migration anvendt. Offset {offset} tilføjet til alle imports for målet, så grafen fortsætter sømløst fra kilden. Gen-import kører i baggrunden.",
+      "not_enough_candidates": "Der skal være mindst to måler-entiteter at migrere mellem. Tilføj eller gendan de relevante installationer først.",
       "no_history_sensors": "Ingen historiksensorer fundet. Genindlæs integrationen først.",
       "debug_logging_enabled": "Debug-logning aktiveret på niveau {level}. Se Home Assistant-loggen for detaljeret output.",
       "debug_logging_disabled": "Debug-logning deaktiveret. Logniveau nulstillet til WARNING."
+    },
+    "error": {
+      "same_entity": "Kilde og mål skal være forskellige entiteter.",
+      "missing_selection": "Vælg både en kilde- og en mål-entitet.",
+      "migration_failed": "Kunne ikke beregne eller anvende offset. Kilden skal have mindst én lagret statistik og målet ligeså — tjek loggen for detaljer."
     },
     "step": {
       "init": {
@@ -232,7 +239,20 @@
           "settings": "Indstillinger",
           "fetch_more_history": "Hent 30 dage mere historik",
           "refetch_history": "Hent sidste år igen",
+          "migrate_meter_history": "Migrer tidligere måler (efter målerskift)",
           "debug_logging": "Debug-logning"
+        }
+      },
+      "migrate_meter_history": {
+        "title": "Migrer tidligere måler",
+        "description": "Når installations-ID'et ændredes ved et målerskift, starter den nye entitet sin historik forfra i stedet for at fortsætte den gamle graf. Vælg kilde (den forældreløse/gamle entitet med tidligere historik) og mål (den nuværende aktive entitet). Integrationen beregner et offset, så målets graf fortsætter sømløst, hvor kilden slap.",
+        "data": {
+          "source_entity": "Kilde (gammel/forældreløs)",
+          "target_entity": "Mål (nuværende/aktiv)"
+        },
+        "data_description": {
+          "source_entity": "Entiteten med historikken fra den tidligere måler — vises typisk som 'unavailable' på sin enhedskort.",
+          "target_entity": "Entiteten der startede forfra efter skiftet — viser typisk det aktuelle lave måleraflæsning."
         }
       },
       "debug_logging": {
