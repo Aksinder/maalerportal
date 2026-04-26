@@ -1,5 +1,10 @@
 {
   "entity": {
+    "binary_sensor": {
+      "leak_alarm": {
+        "name": "Possible leak"
+      }
+    },
     "sensor": {
       "meter_reading": {
         "name": "Meter reading"
@@ -234,10 +239,19 @@
         "title": "Settings",
         "description": "Configure Målerportal integration settings",
         "data": {
-          "polling_interval": "Update interval (minutes)"
+          "polling_interval": "Update interval (minutes)",
+          "currency": "Currency",
+          "acoustic_noise_threshold": "Leak alarm threshold (Hz)",
+          "acoustic_noise_sustained_hours": "Leak alarm sustained duration (hours)",
+          "leak_notify_enabled": "Send notification on leak alarm",
+          "leak_notify_service": "Notification service"
         },
         "data_description": {
-          "polling_interval": "How often to fetch new meter readings (15-120 minutes)"
+          "polling_interval": "How often to fetch new meter readings (15-120 minutes)",
+          "acoustic_noise_threshold": "Acoustic noise level above which a leak is suspected. Default 30 Hz; raise it if you get false alarms.",
+          "acoustic_noise_sustained_hours": "How long the noise must stay above the threshold before the leak alarm turns on. Filters out brief spikes from normal use.",
+          "leak_notify_enabled": "If on, the integration sends a notification when the leak alarm trips (off → on).",
+          "leak_notify_service": "Service to call as 'domain.service'. Default 'persistent_notification.create' shows a card in HA. Use 'notify.mobile_app_<your_device>' for push to your phone."
         }
       }
     }

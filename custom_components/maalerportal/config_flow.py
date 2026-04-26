@@ -748,7 +748,17 @@ class OptionsFlow(config_entries.OptionsFlow):
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage polling interval and currency settings."""
+        """Manage polling, currency, and leak-alarm settings."""
+        from .binary_sensor import (
+            CONF_NOISE_THRESHOLD,
+            CONF_NOTIFY_ENABLED,
+            CONF_NOTIFY_SERVICE,
+            CONF_SUSTAINED_HOURS,
+            DEFAULT_NOISE_THRESHOLD_HZ,
+            DEFAULT_NOTIFY_SERVICE,
+            DEFAULT_SUSTAINED_HOURS,
+        )
+
         if user_input is not None:
             # Preserve history_fetched_days when saving other settings
             new_options = dict(self._config_entry.options)
@@ -762,6 +772,18 @@ class OptionsFlow(config_entries.OptionsFlow):
         current_currency = self._config_entry.options.get(
             CONF_CURRENCY,
             self._config_entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
+        )
+        current_threshold = self._config_entry.options.get(
+            CONF_NOISE_THRESHOLD, DEFAULT_NOISE_THRESHOLD_HZ
+        )
+        current_sustained = self._config_entry.options.get(
+            CONF_SUSTAINED_HOURS, DEFAULT_SUSTAINED_HOURS
+        )
+        current_notify_enabled = self._config_entry.options.get(
+            CONF_NOTIFY_ENABLED, False
+        )
+        current_notify_service = self._config_entry.options.get(
+            CONF_NOTIFY_SERVICE, DEFAULT_NOTIFY_SERVICE
         )
 
         return self.async_show_form(
@@ -779,6 +801,22 @@ class OptionsFlow(config_entries.OptionsFlow):
                         CONF_CURRENCY,
                         default=current_currency,
                     ): vol.In(SUPPORTED_CURRENCIES),
+                    vol.Optional(
+                        CONF_NOISE_THRESHOLD,
+                        default=current_threshold,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=1, max=1000)),
+                    vol.Optional(
+                        CONF_SUSTAINED_HOURS,
+                        default=current_sustained,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=72)),
+                    vol.Optional(
+                        CONF_NOTIFY_ENABLED,
+                        default=current_notify_enabled,
+                    ): bool,
+                    vol.Optional(
+                        CONF_NOTIFY_SERVICE,
+                        default=current_notify_service,
+                    ): str,
                 }
             ),
         )

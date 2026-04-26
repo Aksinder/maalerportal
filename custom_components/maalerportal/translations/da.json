@@ -1,5 +1,10 @@
 {
   "entity": {
+    "binary_sensor": {
+      "leak_alarm": {
+        "name": "Mistanke om vandlækage"
+      }
+    },
     "sensor": {
       "meter_reading": {
         "name": "Måleraflæsning"
@@ -234,10 +239,19 @@
         "title": "Indstillinger",
         "description": "Konfigurer Målerportal-integrationsindstillinger",
         "data": {
-          "polling_interval": "Opdateringsinterval (minutter)"
+          "polling_interval": "Opdateringsinterval (minutter)",
+          "currency": "Valuta",
+          "acoustic_noise_threshold": "Lækage-alarm tærskel (Hz)",
+          "acoustic_noise_sustained_hours": "Tid over tærskel før alarm (timer)",
+          "leak_notify_enabled": "Send notifikation ved lækagealarm",
+          "leak_notify_service": "Notifikationstjeneste"
         },
         "data_description": {
-          "polling_interval": "Hvor ofte der skal hentes nye målerdata (15-120 minutter)"
+          "polling_interval": "Hvor ofte der skal hentes nye målerdata (15-120 minutter)",
+          "acoustic_noise_threshold": "Akustisk støjniveau som indikerer mistanke om lækage. Standard 30 Hz — øg ved falske alarmer.",
+          "acoustic_noise_sustained_hours": "Hvor længe støjen skal forblive over tærsklen før alarmen tændes. Filtrerer korte spidser fra normal brug.",
+          "leak_notify_enabled": "Hvis aktiveret sender integrationen en notifikation når alarmen skifter fra fra til til.",
+          "leak_notify_service": "Tjeneste at kalde i formatet 'domain.service'. Standard 'persistent_notification.create' viser et kort i HA. Brug 'notify.mobile_app_<din_enhed>' til push til mobil."
         }
       }
     }

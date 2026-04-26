@@ -36,7 +36,7 @@ _OFFSET_STORE_KEY_FMT = f"{DOMAIN}.meter_offsets.{{entry_id}}"
 _LOGGER = logging.getLogger(__name__)
 
 # List the platforms that you want to support.
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 # Service constants
 SERVICE_REFRESH = "refresh"

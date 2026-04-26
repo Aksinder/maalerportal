@@ -1,5 +1,10 @@
 {
   "entity": {
+    "binary_sensor": {
+      "leak_alarm": {
+        "name": "Misstänkt vattenläcka"
+      }
+    },
     "sensor": {
       "meter_reading": {
         "name": "Mätaravläsning"
@@ -234,10 +239,19 @@
         "title": "Inställningar",
         "description": "Konfigurera Målerportal-integrationsinställningar",
         "data": {
-          "polling_interval": "Uppdateringsintervall (minuter)"
+          "polling_interval": "Uppdateringsintervall (minuter)",
+          "currency": "Valuta",
+          "acoustic_noise_threshold": "Larm-tröskel akustiskt brus (Hz)",
+          "acoustic_noise_sustained_hours": "Tid över tröskel innan larm (timmar)",
+          "leak_notify_enabled": "Skicka notifiering vid läckagelarm",
+          "leak_notify_service": "Notifieringstjänst"
         },
         "data_description": {
-          "polling_interval": "Hur ofta nya mätardata ska hämtas (15-120 minuter)"
+          "polling_interval": "Hur ofta nya mätardata ska hämtas (15-120 minuter)",
+          "acoustic_noise_threshold": "Akustisk brusnivå som indikerar misstänkt läckage. Standard 30 Hz — höj om du får falsklarm.",
+          "acoustic_noise_sustained_hours": "Hur länge bruset måste hålla sig över tröskeln innan larmet tänds. Filtrerar bort kortvariga ljudtoppar från normal vattenanvändning.",
+          "leak_notify_enabled": "Om aktiverad skickar integrationen en notifiering när larmet växlar från av till på.",
+          "leak_notify_service": "Tjänst att anropa i formatet 'domain.service'. Standard 'persistent_notification.create' visar ett kort i HA. Använd 'notify.mobile_app_<din_enhet>' för pushnotis till mobil."
         }
       }
     }
