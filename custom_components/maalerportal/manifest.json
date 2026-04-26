@@ -1,6 +1,6 @@
 {
   "domain": "maalerportal",
-  "name": "M\u00e5lerportal",
+  "name": "Målerportal",
   "codeowners": [
     "@maalerportal",
     "@Aksinder"
@@ -12,11 +12,11 @@
   "homekit": {},
   "iot_class": "cloud_polling",
   "loggers": [
-    "M\u00e5lerportal"
+    "Målerportal"
   ],
   "requirements": [],
   "ssdp": [],
   "zeroconf": [],
-  "version": "2026.4.26.5121",
+  "version": "2026.4.26.1637",
   "homeassistant": "2024.10.0"
 }

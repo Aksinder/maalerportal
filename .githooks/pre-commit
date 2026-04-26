@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Auto-bump manifest version on commits that touch the integration.
+
+Runs as a Git pre-commit hook (configured via core.hooksPath=.githooks).
+Updates `custom_components/maalerportal/manifest.json` to a CalVer-style
+version `YYYY.M.D.HHMM` so multiple same-day releases are still ordered
+naturally (later release → higher suffix).
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+INTEGRATION_PREFIX = "custom_components/maalerportal/"
+MANIFEST = Path(INTEGRATION_PREFIX + "manifest.json")
+
+
+def _staged_paths() -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.splitlines()
+
+
+def main() -> int:
+    staged = _staged_paths()
+    if not any(path.startswith(INTEGRATION_PREFIX) for path in staged):
+        # Nothing in the integration changed — leave the version alone.
+        return 0
+
+    if not MANIFEST.is_file():
+        print(f"[pre-commit] manifest not found at {MANIFEST}", file=sys.stderr)
+        return 0
+
+    data = json.loads(MANIFEST.read_text())
+    now = datetime.datetime.now()
+    new_version = f"{now.year}.{now.month}.{now.day}.{now.hour:02d}{now.minute:02d}"
+
+    if data.get("version") == new_version:
+        # Already bumped this minute (e.g. amend) — nothing to do.
+        return 0
+
+    data["version"] = new_version
+    MANIFEST.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    subprocess.run(["git", "add", str(MANIFEST)], check=True)
+    print(f"[pre-commit] Bumped manifest version → {new_version}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
