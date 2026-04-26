@@ -4,17 +4,30 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 import homeassistant.helpers.config_validation as cv
 
 from datetime import timedelta
 from .const import DOMAIN, DEFAULT_POLLING_INTERVAL, CONF_CURRENCY, DEFAULT_CURRENCY
 from .coordinator import MaalerportalCoordinator
+from .reconcile import (
+    TRACKED_INSTALLATION_FIELDS,
+    find_new_installations,
+    reconcile_installations,
+)
+
+# Storage for meter offsets — kept separate from entry.data so updates
+# don't trigger config-entry reload listeners.
+_OFFSET_STORE_VERSION = 1
+_OFFSET_STORE_KEY_FMT = f"{DOMAIN}.meter_offsets.{{entry_id}}"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,50 +56,279 @@ SERVICE_FETCH_MORE_HISTORY_SCHEMA = vol.Schema({
 })
 
 
+async def _fetch_fresh_installations(
+    session: aiohttp.ClientSession, base_url: str, api_key: str
+) -> list[dict[str, Any]] | None:
+    """Fetch the current installation list from the API.
+
+    Returns a flat list of installation dicts (matching the shape we store
+    in entry.data["installations"]), or None if the call failed. Returning
+    None signals callers to fall back to cached data.
+    """
+    try:
+        async with session.get(
+            f"{base_url}/addresses",
+            headers={"ApiKey": api_key},
+            timeout=aiohttp.ClientTimeout(total=20),
+        ) as response:
+            if not response.ok:
+                _LOGGER.warning(
+                    "Could not refresh installations from API: HTTP %s", response.status
+                )
+                return None
+            addresses = await response.json()
+    except (aiohttp.ClientError, TimeoutError) as err:
+        _LOGGER.warning("Could not refresh installations from API: %s", err)
+        return None
+
+    fresh: list[dict[str, Any]] = []
+    for address in addresses or []:
+        for installation in address.get("installations", []):
+            fresh.append(
+                {
+                    "installationId": installation.get("installationId"),
+                    "address": address.get("address"),
+                    "timezone": address.get("timezone"),
+                    "installationType": installation.get("installationType"),
+                    "utilityName": installation.get("utilityName"),
+                    "meterSerial": installation.get("meterSerial"),
+                    "nickname": installation.get("nickname", ""),
+                }
+            )
+    return fresh
+
+
+def _log_reconciliation_changes(
+    missing_ids: set[str],
+    serial_changes: dict[str, dict[str, tuple[Any, Any]]],
+    saved: list[dict[str, Any]],
+    fresh: list[dict[str, Any]],
+) -> None:
+    """Surface reconciliation results in the log."""
+    for installation_id in missing_ids:
+        _LOGGER.warning(
+            "Installation %s is no longer present in the Målerportal account "
+            "(possibly removed or the meter was replaced with a new installation ID). "
+            "Entities will go unavailable. Reconfigure the integration to pick up "
+            "any new installations.",
+            installation_id,
+        )
+
+    for installation_id, changes in serial_changes.items():
+        if "meterSerial" in changes:
+            old, new = changes["meterSerial"]
+            _LOGGER.info(
+                "Installation %s: meter serial changed %s -> %s (likely meter replacement). "
+                "Statistics will be re-anchored to keep the accumulated total continuous.",
+                installation_id,
+                old,
+                new,
+            )
+        for field, (old, new) in changes.items():
+            if field == "meterSerial":
+                continue
+            _LOGGER.debug(
+                "Installation %s: %s changed %r -> %r",
+                installation_id,
+                field,
+                old,
+                new,
+            )
+
+    for new_installation in find_new_installations(saved, fresh):
+        _LOGGER.info(
+            "Found new installation %s in the account that is not configured. "
+            "Reconfigure the integration to add it.",
+            new_installation.get("installationId"),
+        )
+
+
+def _update_device_registry(
+    hass: HomeAssistant, entry: ConfigEntry, installations: list[dict[str, Any]]
+) -> None:
+    """Sync device registry entries (name, serial number) with fresh data."""
+    device_registry = dr.async_get(hass)
+    for installation in installations:
+        installation_id = installation.get("installationId")
+        if not installation_id:
+            continue
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, installation_id)}
+        )
+        if device is None:
+            continue
+
+        new_name = f"{installation.get('address')} - {installation.get('meterSerial')}"
+        if installation.get("nickname"):
+            new_name += f" ({installation['nickname']})"
+        new_serial = installation.get("meterSerial")
+        new_manufacturer = installation.get("utilityName")
+
+        updates: dict[str, Any] = {}
+        # Only update the default name; respect any user-set name_by_user.
+        if device.name != new_name:
+            updates["name"] = new_name
+        if new_serial and device.serial_number != new_serial:
+            updates["serial_number"] = new_serial
+        if new_manufacturer and device.manufacturer != new_manufacturer:
+            updates["manufacturer"] = new_manufacturer
+
+        if updates:
+            device_registry.async_update_device(device.id, **updates)
+
+
+class MeterOffsetStore:
+    """Persistent per-counter offset store backed by HA's Store helper.
+
+    Offsets keep the user-facing accumulated total continuous across
+    physical meter replacements: ``displayed_sum = raw_value + offset``.
+    Storage is separate from ``entry.data`` so writes don't trigger the
+    config-entry reload listener.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        self._store = Store(
+            hass,
+            _OFFSET_STORE_VERSION,
+            _OFFSET_STORE_KEY_FMT.format(entry_id=entry_id),
+        )
+        self._data: dict[str, dict[str, float]] | None = None
+
+    async def async_load(self) -> None:
+        """Load existing offsets from disk."""
+        loaded = await self._store.async_load()
+        self._data = dict(loaded) if isinstance(loaded, dict) else {}
+
+    def get(self, installation_id: str, counter_id: str) -> float:
+        """Return offset for (installation, counter), 0.0 if unset."""
+        if self._data is None:
+            return 0.0
+        return float(self._data.get(installation_id, {}).get(counter_id, 0.0))
+
+    async def async_set(
+        self, installation_id: str, counter_id: str, offset: float
+    ) -> None:
+        """Update and persist offset for (installation, counter)."""
+        if self._data is None:
+            self._data = {}
+        self._data.setdefault(installation_id, {})[counter_id] = float(offset)
+        await self._store.async_save(self._data)
+        _LOGGER.info(
+            "Persisted meter offset for installation %s counter %s: %.4f",
+            installation_id,
+            counter_id,
+            offset,
+        )
+
+
+def is_swap_pending(
+    hass: HomeAssistant, entry_id: str, installation_id: str
+) -> bool:
+    """Whether the installation's meter just changed and offsets need recompute."""
+    store = hass.data.get(DOMAIN, {}).get(entry_id, {})
+    return installation_id in store.get("pending_swap_installations", set())
+
+
+def consume_swap_pending(
+    hass: HomeAssistant, entry_id: str, installation_id: str
+) -> None:
+    """Mark a pending swap as handled so it isn't reapplied."""
+    store = hass.data.get(DOMAIN, {}).get(entry_id)
+    if store is None:
+        return
+    pending = set(store.get("pending_swap_installations", set()))
+    pending.discard(installation_id)
+    store["pending_swap_installations"] = pending
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Målerportal from a config entry."""
 
     hass.data.setdefault(DOMAIN, {})
-    
-    # Store the configuration data for sensors to use
+
+    base_url = entry.data["smarthome_base_url"]
+    api_key = entry.data["api_key"]
+    session = async_get_clientsession(hass)
+
+    # Reconcile saved installations against the API so that meter swaps,
+    # nickname/address edits etc. are picked up automatically at startup.
+    fresh_installations = await _fetch_fresh_installations(session, base_url, api_key)
+    pending_swap_ids: set[str] = set()
+    if fresh_installations is not None:
+        (
+            merged_installations,
+            missing_ids,
+            serial_changes,
+            changed,
+        ) = reconcile_installations(entry.data["installations"], fresh_installations)
+        _log_reconciliation_changes(
+            missing_ids, serial_changes, entry.data["installations"], fresh_installations
+        )
+        pending_swap_ids = set(serial_changes.keys())
+        if changed:
+            hass.config_entries.async_update_entry(
+                entry,
+                data={**entry.data, "installations": merged_installations},
+            )
+            _update_device_registry(hass, entry, merged_installations)
+        installations = merged_installations
+    else:
+        installations = entry.data["installations"]
+        missing_ids = set()
+
+    # Load persisted meter offsets used to keep the user-facing accumulated
+    # total continuous across physical meter replacements.
+    offset_store = MeterOffsetStore(hass, entry.entry_id)
+    await offset_store.async_load()
+
+    # `pending_swap_installations` lists installations whose meter serial
+    # just changed; their statistic sensors recompute the offset on next run.
     hass.data[DOMAIN][entry.entry_id] = {
-        "smarthome_base_url": entry.data["smarthome_base_url"],
-        "installations": entry.data["installations"],
+        "smarthome_base_url": base_url,
+        "installations": installations,
         "email": entry.data.get("email", ""),
         "sensors": [],  # Will be populated by sensor platform
         "history_fetched_days": entry.options.get("history_fetched_days", 7),
         "coordinators": {},  # Will store coordinators by installation_id
+        "offset_store": offset_store,
+        "pending_swap_installations": pending_swap_ids,
     }
-    
+
     # Initialize coordinators for each installation
     polling_interval_minutes = entry.options.get("polling_interval", DEFAULT_POLLING_INTERVAL)
     polling_interval = timedelta(minutes=polling_interval_minutes)
-    
-    # Use config entry ID as part of a unique session key if needed, or just use helper
-    # We use async_get_clientsession(hass) in checking/sensors now, so no custom session here.
-    
+
     # Currency: options override takes precedence over initial config data
     currency = entry.options.get(
         CONF_CURRENCY,
         entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
     )
 
-    for installation in entry.data["installations"]:
+    for installation in installations:
         installation_id = installation["installationId"]
+
+        if installation_id in missing_ids:
+            # Skip coordinator setup for installations that no longer exist
+            # upstream, otherwise their guaranteed-to-fail first refresh would
+            # block the whole entry from loading via ConfigEntryNotReady.
+            _LOGGER.debug(
+                "Skipping coordinator for missing installation %s", installation_id
+            )
+            continue
 
         # Create coordinator
         coordinator = MaalerportalCoordinator(
             hass,
-            entry.data["api_key"],
-            entry.data["smarthome_base_url"],
+            api_key,
+            base_url,
             installation,
             polling_interval,
             currency,
         )
-        
+
         # Perform initial fetch
         await coordinator.async_config_entry_first_refresh()
-        
+
         hass.data[DOMAIN][entry.entry_id]["coordinators"][installation_id] = coordinator
     
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -23,7 +23,9 @@ from homeassistant.const import (
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from ..const import DOMAIN
 from ..coordinator import MaalerportalCoordinator
+from ..reconcile import compute_swap_offset
 from .base import MaalerportalPollingSensor
 
 _LOGGER = logging.getLogger(__name__)
@@ -388,6 +390,13 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         self._last_inserted_timestamp: Optional[datetime] = None
         self._cumulative_sum: float = 0.0
 
+        # Per-counter offset to keep displayed sum continuous across meter
+        # swaps. Loaded from the per-entry offset store on add-to-hass.
+        self._meter_offset: float = 0.0
+        # Heuristic: any reading where raw_value < prev_raw_value * THRESHOLD
+        # is treated as the swap point when a swap is pending.
+        self._swap_drop_threshold = 0.5
+
     @property
     def native_value(self) -> Optional[float]:
         """Return None - this sensor is only for importing statistics to Energy Dashboard.
@@ -414,12 +423,31 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass - restore state and fetch data."""
         await super().async_added_to_hass()
-        
+
         # Set statistic_id to the sensor's entity_id (e.g., "sensor.xxx")
         # This allows async_import_statistics to insert data into this sensor's statistics
         self._statistic_id = self.entity_id
         _LOGGER.debug("Set statistic_id to entity_id: %s", self._statistic_id)
-        
+
+        # Load any persisted offset for this counter (counter-type only —
+        # consumption-type accumulates from incremental values and never
+        # sees raw-meter resets).
+        if self._reading_type != "consumption":
+            entry_id = self._get_entry_id()
+            counter_id = self._counter.get("meterCounterId")
+            if entry_id and counter_id:
+                offset_store = self.hass.data.get(DOMAIN, {}).get(entry_id, {}).get(
+                    "offset_store"
+                )
+                if offset_store is not None:
+                    self._meter_offset = offset_store.get(self._installation_id, counter_id)
+                    if self._meter_offset:
+                        _LOGGER.debug(
+                            "Loaded meter offset for %s: %.4f",
+                            self._statistic_id,
+                            self._meter_offset,
+                        )
+
         # Restore previous state for consumption-type meters
         if self._reading_type == "consumption":
             last_state = await self.async_get_last_state()
@@ -462,6 +490,21 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         if hasattr(self, "_history_task") and self._history_task:
             self._history_task.cancel()
         await super().async_will_remove_from_hass()
+
+    def _get_entry_id(self) -> Optional[str]:
+        """Best-effort lookup of this sensor's config entry id."""
+        platform = getattr(self, "platform", None)
+        config_entry = getattr(platform, "config_entry", None) if platform else None
+        if config_entry is not None:
+            return config_entry.entry_id
+        # Fallback: locate by matching installation_id in hass.data
+        for entry_id, store in self.hass.data.get(DOMAIN, {}).items():
+            if not isinstance(store, dict):
+                continue
+            for inst in store.get("installations", []):
+                if inst.get("installationId") == self._installation_id:
+                    return entry_id
+        return None
 
     async def async_update(self) -> None:
         """Update statistics from historical API data."""
@@ -523,7 +566,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 1,
                 self._statistic_id,
                 True,
-                {"sum"},
+                {"state", "sum"},
             )
 
             has_existing_stats = bool(last_stats and self._statistic_id in last_stats)
@@ -608,6 +651,34 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                             "Using first counter reading as baseline: %s (will subtract from all values)",
                             counter_baseline
                         )
+
+            # Meter-swap offset bookkeeping (counter-type only).
+            # `prev_raw_value` and `prev_displayed_sum` track the last seen
+            # raw API value and last persisted displayed sum so we can spot
+            # a sudden drop (the swap point) and re-anchor the offset.
+            entry_id = self._get_entry_id()
+            from .. import is_swap_pending  # local import avoids circular at module load
+            swap_pending = (
+                self._reading_type != "consumption"
+                and entry_id is not None
+                and is_swap_pending(self.hass, entry_id, self._installation_id)
+            )
+            prev_raw_value: Optional[float] = None
+            prev_displayed_sum: Optional[float] = None
+            if has_existing_stats and last_stats and self._statistic_id in last_stats:
+                last_row = last_stats[self._statistic_id][0]
+                prev_raw_value = last_row.get("state")
+                prev_displayed_sum = last_row.get("sum")
+                if prev_raw_value is not None:
+                    try:
+                        prev_raw_value = float(prev_raw_value)
+                    except (TypeError, ValueError):
+                        prev_raw_value = None
+                if prev_displayed_sum is not None:
+                    try:
+                        prev_displayed_sum = float(prev_displayed_sum)
+                    except (TypeError, ValueError):
+                        prev_displayed_sum = None
             
             # For consumption type, get existing sum from statistics to continue accumulating
             if self._reading_type == "consumption" and self._cumulative_sum == 0.0:
@@ -618,7 +689,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                         1,
                         self._statistic_id,
                         True,
-                        {"sum"},
+                        {"state", "sum"},
                     )
                     if existing_stats and self._statistic_id in existing_stats:
                         last_stat = existing_stats[self._statistic_id][0]
@@ -690,28 +761,83 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                         value = reading.get("value")
                         if value is None:
                             continue
-                        
+
                         # Parse value
                         if isinstance(value, str):
                             value = float(re.sub(r'[^\d.-]', '', value.strip()))
                         else:
                             value = float(value)
-                        
-                        # Calculate sum: if we have a baseline, subtract it to get relative consumption
-                        # This ensures the Energy Dashboard starts from 0, not from the meter's total value
+
+                        # Detect a meter swap: sudden drop in raw value within
+                        # this batch of readings. A swap is recognised when:
+                        #   - we have a previous raw value (existing stats or
+                        #     earlier reading in this batch), AND
+                        #   - the new raw value is significantly lower
+                        #     (< prev * threshold), AND
+                        #   - either reconciliation has flagged a pending
+                        #     swap, OR we have no flag but the drop is
+                        #     unmistakable (defensive fallback).
+                        if (
+                            prev_raw_value is not None
+                            and prev_displayed_sum is not None
+                            and value < prev_raw_value * self._swap_drop_threshold
+                            and (swap_pending or value < prev_raw_value * 0.1)
+                        ):
+                            new_offset = compute_swap_offset(
+                                prev_displayed_sum, value
+                            )
+                            _LOGGER.warning(
+                                "Meter swap detected for %s at %s: raw value "
+                                "dropped %.4f -> %.4f. Re-anchoring offset "
+                                "%.4f -> %.4f to keep accumulated total continuous.",
+                                self._statistic_id,
+                                timestamp.isoformat(),
+                                prev_raw_value,
+                                value,
+                                self._meter_offset,
+                                new_offset,
+                            )
+                            self._meter_offset = new_offset
+                            swap_pending = False
+                            # Persist immediately so a crash mid-batch doesn't
+                            # lose the offset.
+                            counter_id_for_persist = self._counter.get("meterCounterId")
+                            if entry_id and counter_id_for_persist:
+                                offset_store = self.hass.data.get(DOMAIN, {}).get(
+                                    entry_id, {}
+                                ).get("offset_store")
+                                if offset_store is not None:
+                                    await offset_store.async_set(
+                                        self._installation_id,
+                                        counter_id_for_persist,
+                                        new_offset,
+                                    )
+                                from .. import consume_swap_pending
+                                consume_swap_pending(
+                                    self.hass, entry_id, self._installation_id
+                                )
+
+                        # Calculate displayed sum:
+                        #  - First-time install: subtract baseline (legacy
+                        #    behaviour, makes Energy Dashboard start near 0)
+                        #  - Otherwise: apply meter-swap offset (0 if no
+                        #    swap has happened)
                         if counter_baseline is not None:
-                            relative_sum = value - counter_baseline
+                            displayed_sum = value - counter_baseline
                         else:
-                            relative_sum = value
-                        
+                            displayed_sum = value + self._meter_offset
+
                         statistics.append(
                             StatisticData(
                                 start=timestamp,
-                                state=value,  # Original meter reading
-                                sum=relative_sum,  # Relative to baseline (starts near 0)
+                                state=value,  # Raw meter reading
+                                sum=displayed_sum,  # User-facing accumulated total
                             )
                         )
-                    
+
+                        prev_raw_value = value
+                        prev_displayed_sum = displayed_sum
+
                 except (ValueError, TypeError) as err:
                     _LOGGER.debug("Error parsing reading: %s - %s", reading, err)
                     continue
