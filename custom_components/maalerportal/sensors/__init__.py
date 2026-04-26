@@ -11,6 +11,7 @@ from .history import (
 from .measurement import (
     MaalerportalBasicSensor,
     MaalerportalBatterySensor,
+    MaalerportalCurrentFlowSensor,
     MaalerportalFlowSensor,
     MaalerportalHeatPowerSensor,
     MaalerportalHeatVolumeSensor,
@@ -33,6 +34,7 @@ __all__ = [
     "MaalerportalStatisticSensor",
     "MaalerportalBasicSensor",
     "MaalerportalBatterySensor",
+    "MaalerportalCurrentFlowSensor",
     "MaalerportalFlowSensor",
     "MaalerportalHeatPowerSensor",
     "MaalerportalHeatVolumeSensor",

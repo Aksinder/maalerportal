@@ -18,6 +18,7 @@ from .sensors import (
     MaalerportalBatterySensor,
     MaalerportalTemperatureSensor,
     MaalerportalWaterTemperatureSensor,
+    MaalerportalCurrentFlowSensor,
     MaalerportalFlowSensor,
     MaalerportalNoiseSensor,
     MaalerportalSupplyTempSensor,
@@ -153,6 +154,12 @@ def create_sensors_from_counters(
             ))
         elif counter_type in ["DailyMaxFlow1", "DailyMinFlow1"]:
             sensors.append(MaalerportalFlowSensor(
+                coordinator, counter
+            ))
+        elif counter_type in ["Flow1", "Flow2"]:
+            # Instantaneous flow rate (L/h) — present on modern ultrasonic
+            # water meters. Distinct from the daily min/max aggregates.
+            sensors.append(MaalerportalCurrentFlowSensor(
                 coordinator, counter
             ))
         elif counter_type == "AcousticNoise":

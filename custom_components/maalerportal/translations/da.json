@@ -76,6 +76,9 @@
       "min_flow": {
         "name": "Min. flow"
       },
+      "current_flow": {
+        "name": "Aktuelt flow"
+      },
       "acoustic_noise": {
         "name": "Akustisk støj"
       },

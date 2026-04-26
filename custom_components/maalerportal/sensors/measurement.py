@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     UnitOfEnergy,
     UnitOfVolume,
+    UnitOfVolumeFlowRate,
     UnitOfTemperature,
     UnitOfTime,
     UnitOfFrequency,
@@ -313,6 +314,45 @@ class MaalerportalFlowSensor(MaalerportalCoordinatorSensor):
                 if value is not None:
                     self._attr_native_value = round(value, 3)
                     _LOGGER.debug("Updated flow: %s L/h", value)
+                break
+
+
+class MaalerportalCurrentFlowSensor(MaalerportalCoordinatorSensor):
+    """Instantaneous flow rate (Flow1/Flow2) — current L/h passing the meter.
+
+    Distinct from MaalerportalFlowSensor which surfaces only the daily
+    min/max aggregates (DailyMinFlow1, DailyMaxFlow1). This one reflects
+    the value right now: 0 means nothing is being used, non-zero means
+    water is currently flowing somewhere downstream of the meter.
+    """
+
+    def __init__(
+        self,
+        coordinator: MaalerportalCoordinator,
+        counter: dict,
+    ) -> None:
+        super().__init__(coordinator, counter)
+
+        counter_type = counter.get("counterType", "")
+        # Flow1 = primary inlet, Flow2 = secondary (e.g. hot/cold split)
+        suffix = counter_type.lower()  # flow1 / flow2
+        self._attr_translation_key = "current_flow"
+        self._attr_unique_id = f"{self._installation_id}_current_{suffix}"
+
+        self._attr_device_class = SensorDeviceClass.VOLUME_FLOW_RATE
+        self._attr_native_unit_of_measurement = UnitOfVolumeFlowRate.LITERS_PER_HOUR
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:water-sync"
+
+    def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
+        """Update from coordinator data."""
+        our_id = str(self._counter.get("meterCounterId") or "")
+        for counter in meter_counters:
+            counter_id = str(counter.get("meterCounterId") or "")
+            if our_id and counter_id == our_id:
+                value = self._parse_counter_value(counter)
+                if value is not None:
+                    self._attr_native_value = round(value, 3)
                 break
 
 
