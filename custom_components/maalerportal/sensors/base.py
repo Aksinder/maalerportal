@@ -145,22 +145,56 @@ class MaalerportalCoordinatorSensor(CoordinatorEntity[MaalerportalCoordinator], 
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return base attributes plus the upstream latestTimestamp.
+        """Return base attributes plus upstream-timestamp helpers.
 
-        ``last_reading_at`` is the timestamp the meter itself recorded the
-        value — distinct from HA's built-in ``last_updated`` which only
-        reflects when the entity state changed locally. Useful for
-        spotting stale data when the meter hasn't reported in a while.
+        Three timestamp-related attributes for cards and automations:
+
+        ``last_reading_at``
+            ISO timestamp the meter itself recorded the value (from API).
+            Distinct from HA's ``last_updated`` which only reflects when
+            the entity state changed locally.
+        ``reading_age_minutes``
+            How many minutes ago the meter recorded this value. Updates
+            on every state read so it stays current. Use in automations:
+            ``trigger: numeric_state attribute=reading_age_minutes above=360``.
+        ``report_lag_minutes``
+            Delay between meter recording the value and HA's state
+            picking it up — i.e. upstream + polling lag. Useful for
+            spotting when the utility's pipeline is running late.
         """
         attrs = super().extra_state_attributes
-        if self._counter and self.coordinator.data:
-            our_id = self._counter.get("meterCounterId")
-            for counter in self.coordinator.data.get("meterCounters", []):
-                if counter.get("meterCounterId") == our_id:
-                    ts = counter.get("latestTimestamp")
-                    if ts:
-                        attrs["last_reading_at"] = ts
-                    break
+        if not self._counter or not self.coordinator.data:
+            return attrs
+
+        our_id = self._counter.get("meterCounterId")
+        for counter in self.coordinator.data.get("meterCounters", []):
+            if counter.get("meterCounterId") != our_id:
+                continue
+            ts = counter.get("latestTimestamp")
+            if not ts:
+                break
+            attrs["last_reading_at"] = ts
+            try:
+                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                break
+            now = datetime.now(timezone.utc)
+            attrs["reading_age_minutes"] = round(
+                (now - parsed).total_seconds() / 60, 1
+            )
+            # Report lag: when HA's state-change happened minus when the
+            # meter recorded the value. Pulls last_changed from the live
+            # state object (only available after the entity is added to
+            # hass and has a state).
+            if self.hass and self.entity_id:
+                live = self.hass.states.get(self.entity_id)
+                if live is not None and live.last_changed:
+                    lag = (live.last_changed - parsed).total_seconds()
+                    # Clamp to >= 0 — negative would mean HA somehow
+                    # saw the value before the meter recorded it, which
+                    # is only a clock-skew artifact.
+                    attrs["report_lag_minutes"] = round(max(lag, 0) / 60, 1)
+            break
         return attrs
 
     async def async_added_to_hass(self) -> None:
