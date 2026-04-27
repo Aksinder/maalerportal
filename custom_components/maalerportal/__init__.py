@@ -178,6 +178,36 @@ def _surface_reconciliation_changes(
         )
 
 
+def _promote_legacy_last_reading_entities(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Move LastReadingSensor entities out of Diagnostic.
+
+    The sensor was originally placed under EntityCategory.DIAGNOSTIC,
+    which hides it from the primary device card by default. It's
+    actually a high-value signal (was-the-meter-alive-recently?), so
+    we want it visible without expanding Diagnostic. Idempotent —
+    only updates entities that still carry the old category.
+    """
+    entity_registry = er.async_get(hass)
+    for entity in list(entity_registry.entities.values()):
+        if entity.config_entry_id != entry.entry_id:
+            continue
+        if entity.domain != "sensor":
+            continue
+        if not (entity.unique_id or "").endswith("_last_reading"):
+            continue
+        if entity.entity_category is not None:
+            entity_registry.async_update_entity(
+                entity.entity_id,
+                entity_category=None,
+            )
+            _LOGGER.info(
+                "Promoted %s out of Diagnostic to main sensors",
+                entity.entity_id,
+            )
+
+
 def _hide_legacy_statistic_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Migrate visibility for stats-only sensors created before the
     ``entity_registry_visible_default = False`` change.
@@ -318,6 +348,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # One-shot migration: hide statistic sensors that pre-date the
     # entity_registry_visible_default change (idempotent).
     _hide_legacy_statistic_entities(hass, entry)
+    _promote_legacy_last_reading_entities(hass, entry)
 
     # Reconcile saved installations against the API so that meter swaps,
     # nickname/address edits etc. are picked up automatically at startup.

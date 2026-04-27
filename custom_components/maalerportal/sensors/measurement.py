@@ -359,19 +359,20 @@ class MaalerportalCurrentFlowSensor(MaalerportalCoordinatorSensor):
 
 
 class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
-    """Diagnostic sensor that surfaces the upstream meter's last-reading
+    """User-facing sensor that surfaces the upstream meter's last-reading
     timestamp.
 
     HA renders this as a relative time ("3 hours ago") thanks to
-    ``device_class=timestamp`` — making it immediately obvious when a
-    meter has gone quiet. Lives in the Diagnostic section so it doesn't
-    clutter the primary device card.
+    ``device_class=timestamp`` — letting users tell at a glance whether
+    the meter is fresh or has gone quiet. Originally placed under
+    Diagnostic; promoted to the main sensor section because it's a
+    primary signal, not technical detail. (See migration in __init__
+    that clears entity_category for legacy installs.)
 
-    Reads from the primary counter on the installation; the timestamp
-    is the latest one reported by any of that meter's readings.
+    Surfaces the freshest timestamp seen across all counters on the
+    installation; per-counter timestamps are exposed in attributes.
     """
 
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_translation_key = "last_reading"
     _attr_icon = "mdi:clock-check-outline"
