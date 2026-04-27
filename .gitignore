@@ -2,6 +2,7 @@ __pycache__/
 .env
 .env.example
 .token
+readings_csv/
 .venv/
 .venv_backup/
 .DS_Store
