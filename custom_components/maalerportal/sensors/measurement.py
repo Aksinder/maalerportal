@@ -383,6 +383,18 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
         super().__init__(coordinator, counter=None)
         self._attr_unique_id = f"{self._installation_id}_last_reading"
 
+    def _handle_coordinator_update(self) -> None:
+        """Force a state write on every coordinator refresh.
+
+        The base class's _handle_coordinator_update only writes state when
+        ``self._counter`` is set; this sensor passes counter=None because
+        it aggregates timestamps across ALL counters. Without this
+        override the entity's native_value property would still compute
+        the current timestamp correctly, but HA never re-reads it — so
+        the state appears frozen at whatever the first refresh produced.
+        """
+        self.async_write_ha_state()
+
     @property
     def native_value(self) -> datetime | None:
         if not self.coordinator.data:
