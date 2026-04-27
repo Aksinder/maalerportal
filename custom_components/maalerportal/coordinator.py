@@ -34,6 +34,7 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         installation: dict,
         polling_interval: timedelta,
         currency: str = "SEK",
+        readings_log: Any = None,
     ) -> None:
         """Initialize."""
         self.api_key = api_key
@@ -42,6 +43,10 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         self.installation_id = installation["installationId"]
         self.currency = currency
         self.session = async_get_clientsession(hass)
+        # Optional CSV append-only log of every reading we observe.
+        # Provided by __init__ at setup time; coordinator just calls it
+        # on each successful poll and after fallback fetches.
+        self.readings_log = readings_log
 
         # Per-counter fallback for when /readings/latest returns null.
         # Populated lazily from /readings/historical and refreshed only
@@ -91,6 +96,7 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                 )
 
                 await self._backfill_null_latest_values(data["meterCounters"])
+                await self._log_readings(data["meterCounters"])
 
                 return data
 
@@ -136,6 +142,31 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                 # Marker so downstream consumers can tell live from filled.
                 counter["isFallback"] = True
 
+    async def _log_readings(self, counters: list[dict[str, Any]]) -> None:
+        """Forward the latest reading per counter to the CSV archive.
+
+        Live polls log with source="latest"; if the value came from the
+        coordinator's null-value fallback (counter["isFallback"]=True)
+        we tag it as such so the user can tell the two apart in the
+        CSV.
+        """
+        if self.readings_log is None:
+            return
+        for counter in counters:
+            ts = counter.get("latestTimestamp")
+            value = counter.get("latestValue")
+            if not ts or value is None:
+                continue
+            source = "fallback" if counter.get("isFallback") else "latest"
+            await self.readings_log.async_record(
+                timestamp=ts,
+                counter_type=counter.get("counterType", ""),
+                meter_counter_id=counter.get("meterCounterId", ""),
+                value=value,
+                unit=counter.get("unit", ""),
+                source=source,
+            )
+
     async def _refresh_fallback_from_history(self, counter_ids: list[str]) -> None:
         """Populate fallback cache for the given counters from /readings/historical."""
         try:
@@ -176,6 +207,12 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
             return
 
         readings = data.get("readings", []) if isinstance(data, dict) else []
+
+        # Archive every historical reading we fetched, not just the latest
+        # we'll use as the fallback. Dedup in the log makes this safe.
+        if self.readings_log is not None:
+            await self.readings_log.async_record_many(readings, source="historical")
+
         for counter_id in counter_ids:
             candidates = [
                 r for r in readings

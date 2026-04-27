@@ -22,6 +22,7 @@ import homeassistant.helpers.config_validation as cv
 from datetime import timedelta
 from .const import DOMAIN, DEFAULT_POLLING_INTERVAL, CONF_CURRENCY, DEFAULT_CURRENCY
 from .coordinator import MaalerportalCoordinator
+from .readings_log import ReadingsLog
 from .reconcile import (
     TRACKED_INSTALLATION_FIELDS,
     find_new_installations,
@@ -403,6 +404,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "stale_store": stale_store,
         "stale_monitor_unsubs": [],
         "pending_swap_installations": pending_swap_ids,
+        "readings_logs": {},  # populated below per installation
     }
 
     # Initialize coordinators for each installation
@@ -427,6 +429,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             continue
 
+        # Per-installation CSV log of every reading we observe.
+        readings_log = ReadingsLog(hass, installation_id)
+        await readings_log.async_load()
+        hass.data[DOMAIN][entry.entry_id]["readings_logs"][installation_id] = readings_log
+
         # Create coordinator
         coordinator = MaalerportalCoordinator(
             hass,
@@ -435,6 +442,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             installation,
             polling_interval,
             currency,
+            readings_log=readings_log,
         )
 
         # Perform initial fetch

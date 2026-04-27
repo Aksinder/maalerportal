@@ -1049,6 +1049,15 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     _LOGGER.info(
                         "Chunk %s → %s: %d readings", from_str, to_str, len(chunk_readings)
                     )
+                    # Archive each historical reading. Dedup in the
+                    # readings_log makes overlapping chunks safe.
+                    readings_log = self.hass.data.get(DOMAIN, {}).get(
+                        self._get_entry_id() or "", {}
+                    ).get("readings_logs", {}).get(self._installation_id)
+                    if readings_log is not None:
+                        await readings_log.async_record_many(
+                            chunk_readings, source="historical"
+                        )
                 else:
                     _LOGGER.debug(
                         "Chunk %s → %s: 0 readings", from_str, to_str
