@@ -299,41 +299,172 @@ consumption data.
 
 ## Useful Card Snippets
 
-### Meter status overview
+> Replace `sensor.your_meter_*` with your actual entity IDs — typically
+> formatted as `sensor.<address_slug>_<serial>_<type>` (e.g.
+> `sensor.example_street_12345_vattenmataravlasning`).
+
+### Meter status overview (compact, two-line)
 ```yaml
 type: entities
 title: Vattenmätare
 entities:
-  - entity: sensor.<address>_<serial>_vattenmataravlasning
+  - entity: sensor.your_meter_vattenmataravlasning
     name: Avläsning
     secondary_info: last-changed
-  - entity: sensor.<address>_<serial>_senaste_avlasning
+  - entity: sensor.your_meter_senaste_avlasning
     name: Mätaren rapporterade
 ```
 
 ### Markdown card with full timestamp story
+Shows current value plus both timestamps (when meter recorded the
+value and when HA picked it up) so the lag between upstream and
+your integration is visible.
+
 ```yaml
 type: markdown
 content: >-
-  ## Vatten — {{ states('sensor.<address>_<serial>_vattenmataravlasning') }} m³
+  ## Vatten — {{ states('sensor.your_meter_vattenmataravlasning') }} m³
   
-  {% set s = states.sensor.<address>_<serial>_vattenmataravlasning %}
+  {% set s = states.sensor.your_meter_vattenmataravlasning %}
   - Mätaren rapporterade {{ relative_time(s.attributes.last_reading_at | as_datetime) }}
   - Synkat till HA {{ relative_time(s.last_changed) }}
   - Lag: {{ ((s.last_changed - (s.attributes.last_reading_at | as_datetime)).total_seconds() / 60) | int }} min
 ```
 
+### Recent readings table (date · time · value · delta)
+Renders the last N raw readings (configurable via
+**Configure → Settings → Number of recent readings**, default 30) as
+a table with weekday and consumption delta between rows. Newest
+first.
+
+```yaml
+type: markdown
+title: Senaste avläsningar
+content: >-
+  | # | Datum | Veckodag | Tid | Värde | Δ |
+  |---|---|---|---|---|---|
+  {%- set readings = state_attr('sensor.your_meter_senaste_avlasning', 'recent_readings') | reverse | list %}
+  {%- set ns = namespace(prev=none) %}
+  {%- for r in readings %}
+  {%- set ts = r.timestamp | as_datetime %}
+  {%- set wd = ['Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag','Söndag'][ts.weekday()] %}
+  {%- set delta = '' if ns.prev is none else '+' ~ ((ns.prev - r.value) | round(3)) ~ ' m³' %}
+  | {{ loop.index }} | {{ ts.strftime('%Y-%m-%d') }} | {{ wd }} | {{ ts.strftime('%H:%M') }} | **{{ r.value }} {{ r.unit }}** | {{ delta }} |
+  {%- set ns.prev = r.value %}
+  {%- endfor %}
+```
+
+### Recent readings — minimal version
+Same data, fewer columns. Good for sparse meters or compact
+sidebars.
+
+```yaml
+type: markdown
+content: >-
+  ## Avläsningar
+  
+  | Datum | Tid | Värde |
+  |---|---|---|
+  {%- for r in state_attr('sensor.your_meter_senaste_avlasning', 'recent_readings') | reverse %}
+  | {{ r.timestamp[:10] }} | {{ r.timestamp[11:16] }} | {{ r.value }} {{ r.unit }} |
+  {%- endfor %}
+```
+
 ### Statistics graph (long-term cumulative + daily change)
+Best HA-native way to chart historical data. The `state` series
+shows the meter's cumulative reading; `change` shows daily
+consumption.
+
 ```yaml
 type: statistics-graph
 entities:
-  - sensor.<address>_<serial>_vattenmataravlasning
+  - sensor.your_meter_vattenmataravlasning
 chart_type: line
 period: day
 days_to_show: 90
 stat_types:
   - state
   - change
+```
+
+### Multi-installation status grid (glance)
+For accounts with multiple meters at different addresses:
+
+```yaml
+type: glance
+columns: 2
+entities:
+  - entity: sensor.location_a_vattenmataravlasning
+    name: Sommarstuga
+  - entity: sensor.location_b_vattenmataravlasning
+    name: Hus
+  - entity: sensor.location_a_senaste_avlasning
+    name: Sommarstuga rapport
+  - entity: sensor.location_b_senaste_avlasning
+    name: Hus rapport
+```
+
+### Leak detection card with current acoustic noise
+Combines the binary alarm sensor with the live noise reading and
+threshold setting. Useful for tuning the threshold.
+
+```yaml
+type: entities
+title: Läckdetektering
+entities:
+  - entity: binary_sensor.your_meter_misstankt_vattenlacka
+    name: Larm
+  - entity: sensor.your_meter_akustiskt_brus
+    name: Aktuellt brus
+    secondary_info: last-updated
+  - type: attribute
+    entity: binary_sensor.your_meter_misstankt_vattenlacka
+    attribute: threshold_hz
+    name: Tröskel
+    suffix: ' Hz'
+  - type: attribute
+    entity: binary_sensor.your_meter_misstankt_vattenlacka
+    attribute: sustained_hours
+    name: Krävd duration
+    suffix: ' h'
+```
+
+### Live flow + total reading (mini-stats)
+Side-by-side gauges or numbers for the dashboard hero card.
+
+```yaml
+type: glance
+title: Vatten just nu
+entities:
+  - entity: sensor.your_meter_vattenmataravlasning
+    name: Mätarställning
+  - entity: sensor.your_meter_aktuellt_flode
+    name: Just nu
+  - entity: sensor.your_meter_akustiskt_brus
+    name: Brus
+```
+
+### Stale-data status overview
+Quick at-a-glance for whether each meter is fresh. Combines the
+last-reading time with a template that shows hours since.
+
+```yaml
+type: markdown
+content: >-
+  ## Mätarstatus
+  
+  {% set meters = [
+    ('Sommarstuga', 'sensor.location_a_senaste_avlasning'),
+    ('Hus', 'sensor.location_b_senaste_avlasning'),
+  ] %}
+  | Mätare | Senast rapporterat | Status |
+  |---|---|---|
+  {%- for name, eid in meters %}
+  {%- set ts = states(eid) | as_datetime %}
+  {%- set hours = ((now() - ts).total_seconds() / 3600) | round(1) %}
+  {%- set status = '🟢 OK' if hours < 6 else ('🟡 Försenad' if hours < 24 else '🔴 Tyst') %}
+  | {{ name }} | {{ relative_time(ts) }} | {{ status }} |
+  {%- endfor %}
 ```
 
 ## Troubleshooting
