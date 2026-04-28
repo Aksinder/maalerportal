@@ -414,18 +414,51 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Per-counter timestamps so users can see if some counters lag."""
+        """Per-counter timestamps + recent_readings for table-style cards.
+
+        ``recent_readings`` exposes the last 30 primary-counter readings
+        with their original API timestamps so users can render a table
+        of "date · time · value" via a markdown card without writing
+        custom Python or pulling the CSV manually. Sourced from the
+        per-installation ReadingsLog's in-memory buffer.
+        """
         attrs: dict[str, Any] = {"installation_id": self._installation_id}
         if not self.coordinator.data:
             return attrs
         per_counter: dict[str, str] = {}
+        primary_counter_id: str | None = None
         for counter in self.coordinator.data.get("meterCounters", []):
             counter_type = counter.get("counterType")
             ts = counter.get("latestTimestamp")
             if counter_type and ts:
                 per_counter[counter_type] = ts
+            if counter.get("isPrimary"):
+                primary_counter_id = counter.get("meterCounterId")
         if per_counter:
             attrs["per_counter_timestamp"] = per_counter
+
+        # Recent raw readings of the primary counter (e.g. ColdWater for
+        # a water meter). Limited to 30 to keep state-history payload
+        # reasonable; users wanting more can read the CSV directly.
+        if primary_counter_id and self.hass:
+            store = self.hass.data.get(DOMAIN, {})
+            for entry_data in store.values():
+                if not isinstance(entry_data, dict):
+                    continue
+                rl = entry_data.get("readings_logs", {}).get(self._installation_id)
+                if rl is None:
+                    continue
+                recent = rl.recent_readings(counter_id=primary_counter_id, n=30)
+                if recent:
+                    attrs["recent_readings"] = [
+                        {
+                            "timestamp": r.get("timestamp"),
+                            "value": r.get("value"),
+                            "unit": r.get("unit"),
+                        }
+                        for r in recent
+                    ]
+                break
         return attrs
 
 

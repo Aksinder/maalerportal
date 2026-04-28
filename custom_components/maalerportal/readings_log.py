@@ -34,6 +34,11 @@ _LOGGER = logging.getLogger(__name__)
 _SUBDIR = "maalerportal"
 _HEADER = ["timestamp", "counter_type", "meter_counter_id", "value", "unit", "source"]
 
+# Last N rows kept in memory for cheap "recent readings" lookups (used by
+# the LastReadingSensor's recent_readings attribute). The CSV is the
+# canonical archive — this in-memory ring is just a fast view.
+_RECENT_BUFFER_SIZE = 200
+
 
 class ReadingsLog:
     """Per-installation CSV append-only log."""
@@ -42,6 +47,9 @@ class ReadingsLog:
         self._dir = Path(hass.config.path(_SUBDIR))
         self._path = self._dir / f"{installation_id}.csv"
         self._known: set[tuple[str, str]] = set()
+        # Last N rows in memory — populated from the CSV tail at load
+        # and updated as new rows are written. Sorted oldest-first.
+        self._recent: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._loaded = False
 
@@ -52,12 +60,13 @@ class ReadingsLog:
     async def async_load(self) -> None:
         """Initialize file (creates header if missing) and load existing keys."""
         await asyncio.to_thread(self._init_file_if_missing)
-        self._known = await asyncio.to_thread(self._read_existing_keys)
+        self._known, self._recent = await asyncio.to_thread(self._read_existing)
         self._loaded = True
         _LOGGER.debug(
-            "Loaded readings log %s with %d existing rows",
+            "Loaded readings log %s with %d existing rows (%d in recent buffer)",
             self._path,
             len(self._known),
+            len(self._recent),
         )
 
     def _init_file_if_missing(self) -> None:
@@ -66,10 +75,15 @@ class ReadingsLog:
             with self._path.open("w", encoding="utf-8", newline="") as f:
                 csv.writer(f).writerow(_HEADER)
 
-    def _read_existing_keys(self) -> set[tuple[str, str]]:
+    def _read_existing(
+        self,
+    ) -> tuple[set[tuple[str, str]], list[dict[str, Any]]]:
+        """Scan the CSV once to populate both the dedup key set and the
+        recent-rows ring buffer. Single read instead of two passes."""
         keys: set[tuple[str, str]] = set()
+        rows: list[dict[str, Any]] = []
         if not self._path.exists():
-            return keys
+            return keys, rows
         try:
             with self._path.open("r", encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
@@ -78,9 +92,12 @@ class ReadingsLog:
                     ts = row.get("timestamp")
                     if cid and ts:
                         keys.add((cid, ts))
+                        rows.append(dict(row))
         except OSError as err:
             _LOGGER.warning("Could not read readings log %s: %s", self._path, err)
-        return keys
+        # Sort by timestamp ascending; keep the tail.
+        rows.sort(key=lambda r: r.get("timestamp", ""))
+        return keys, rows[-_RECENT_BUFFER_SIZE:]
 
     async def async_record(
         self,
@@ -125,11 +142,45 @@ class ReadingsLog:
                 )
                 return False
             self._known.add(key)
+            # Mirror to in-memory buffer (kept sorted oldest-first, capped).
+            self._recent.append({
+                "timestamp": timestamp,
+                "counter_type": counter_type or "",
+                "meter_counter_id": meter_counter_id,
+                "value": value,
+                "unit": unit or "",
+                "source": source,
+            })
+            if len(self._recent) > _RECENT_BUFFER_SIZE:
+                # Re-sort defensively in case out-of-order records arrived
+                # (historical bulk imports often do).
+                self._recent.sort(key=lambda r: r.get("timestamp", ""))
+                del self._recent[: len(self._recent) - _RECENT_BUFFER_SIZE]
         return True
 
     def _append_row(self, row: list[str]) -> None:
         with self._path.open("a", encoding="utf-8", newline="") as f:
             csv.writer(f).writerow(row)
+
+    def recent_readings(
+        self,
+        *,
+        counter_id: str | None = None,
+        n: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Return the last ``n`` rows from the in-memory buffer.
+
+        If ``counter_id`` is given, filter to that counter only —
+        useful for cards that show one meter type at a time. Rows
+        are returned sorted oldest-first to match the CSV order;
+        callers can reverse if they want newest-first display.
+        """
+        sorted_recent = sorted(self._recent, key=lambda r: r.get("timestamp", ""))
+        if counter_id:
+            sorted_recent = [
+                r for r in sorted_recent if r.get("meter_counter_id") == counter_id
+            ]
+        return sorted_recent[-n:]
 
     async def async_record_many(
         self,
