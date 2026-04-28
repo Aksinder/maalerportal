@@ -54,6 +54,12 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         # latestValues clear the cache as they arrive.
         self._fallback_values: dict[str, dict[str, Any]] = {}
 
+        # Tracks (latestTimestamp, datetime_we_first_saw_it) per counter.
+        # Used to compute report-lag — i.e. how long after the meter
+        # recorded a value did our integration receive it. Reset
+        # whenever latestTimestamp changes (= new reading observed).
+        self._first_observed: dict[str, tuple[str, datetime]] = {}
+
         super().__init__(
             hass,
             _LOGGER,
@@ -96,6 +102,7 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                 )
 
                 await self._backfill_null_latest_values(data["meterCounters"])
+                self._update_first_observed(data["meterCounters"])
                 await self._log_readings(data["meterCounters"])
 
                 return data
@@ -141,6 +148,33 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
                 counter["latestTimestamp"] = fb["timestamp"]
                 # Marker so downstream consumers can tell live from filled.
                 counter["isFallback"] = True
+
+    def _update_first_observed(self, counters: list[dict[str, Any]]) -> None:
+        """Update the first-observed-at marker for each counter.
+
+        When latestTimestamp changes (= new reading came in), record now
+        as the moment we first saw it. The marker survives until the
+        next new timestamp arrives. Used by extra_state_attributes on
+        sensors to compute report_lag_minutes (time between meter
+        recording and our integration observing).
+        """
+        now = datetime.now(timezone.utc)
+        for counter in counters:
+            cid = counter.get("meterCounterId")
+            ts = counter.get("latestTimestamp")
+            if not cid or not ts:
+                continue
+            cached = self._first_observed.get(cid)
+            if cached is None or cached[0] != ts:
+                self._first_observed[cid] = (ts, now)
+
+    def first_observed_at(self, counter_id: str, timestamp: str) -> datetime | None:
+        """Return when we first saw this exact timestamp for the counter,
+        or None if we haven't observed it yet."""
+        cached = self._first_observed.get(counter_id)
+        if cached is None or cached[0] != timestamp:
+            return None
+        return cached[1]
 
     async def _log_readings(self, counters: list[dict[str, Any]]) -> None:
         """Forward the latest reading per counter to the CSV archive.

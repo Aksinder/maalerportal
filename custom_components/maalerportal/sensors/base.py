@@ -182,18 +182,17 @@ class MaalerportalCoordinatorSensor(CoordinatorEntity[MaalerportalCoordinator], 
             attrs["reading_age_minutes"] = round(
                 (now - parsed).total_seconds() / 60, 1
             )
-            # Report lag: when HA's state-change happened minus when the
-            # meter recorded the value. Pulls last_changed from the live
-            # state object (only available after the entity is added to
-            # hass and has a state).
-            if self.hass and self.entity_id:
-                live = self.hass.states.get(self.entity_id)
-                if live is not None and live.last_changed:
-                    lag = (live.last_changed - parsed).total_seconds()
-                    # Clamp to >= 0 — negative would mean HA somehow
-                    # saw the value before the meter recorded it, which
-                    # is only a clock-skew artifact.
-                    attrs["report_lag_minutes"] = round(max(lag, 0) / 60, 1)
+            # Report lag: minutes between meter recording the value and
+            # our coordinator first observing it. Pulled from a
+            # coordinator-level marker that's stable across the
+            # state-machine's chicken-and-egg during entity-write
+            # (unlike hass.states.get which can return None on first
+            # writes). Clamped to ≥0 — negative would only be clock
+            # skew.
+            first_seen = self.coordinator.first_observed_at(our_id, ts)
+            if first_seen is not None:
+                lag = (first_seen - parsed).total_seconds()
+                attrs["report_lag_minutes"] = round(max(lag, 0) / 60, 1)
             break
         return attrs
 
