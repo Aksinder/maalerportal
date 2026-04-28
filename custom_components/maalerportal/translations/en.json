@@ -278,7 +278,8 @@
           "leak_notify_enabled": "Send notification on leak alarm",
           "leak_notify_service": "Notification service",
           "stale_data_factor": "Stale-data threshold multiplier",
-          "stale_data_fallback_hours": "Stale-data fallback (hours, used until cadence is learned)"
+          "stale_data_fallback_hours": "Stale-data fallback (hours, used until cadence is learned)",
+          "recent_readings_count": "Number of recent readings to expose"
         },
         "data_description": {
           "polling_interval": "How often to fetch new meter readings (15-120 minutes)",
@@ -287,7 +288,8 @@
           "leak_notify_enabled": "If on, the integration sends a notification when the leak alarm trips (off → on).",
           "leak_notify_service": "Service to call as 'domain.service'. Default 'persistent_notification.create' shows a card in HA. Use 'notify.mobile_app_<your_device>' for push to your phone.",
           "stale_data_factor": "How many times longer than the meter's observed reporting interval before flagging it as stale. 3.0 = alarm at ~3× the median delay between readings.",
-          "stale_data_fallback_hours": "Threshold used during the first few hours after install, before the integration has learned the meter's reporting cadence."
+          "stale_data_fallback_hours": "Threshold used during the first few hours after install, before the integration has learned the meter's reporting cadence.",
+          "recent_readings_count": "How many recent raw API readings to surface in the recent_readings attribute on the Senaste avläsning sensor (1-200). Use this in markdown cards to render a date/time/value table."
         }
       }
     }

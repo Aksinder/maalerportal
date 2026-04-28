@@ -278,7 +278,8 @@
           "leak_notify_enabled": "Skicka notifiering vid läckagelarm",
           "leak_notify_service": "Notifieringstjänst",
           "stale_data_factor": "Försenad-data-tröskel (multiplikator)",
-          "stale_data_fallback_hours": "Tillfällig försenad-data-tröskel (timmar, används tills frekvensen lärts in)"
+          "stale_data_fallback_hours": "Tillfällig försenad-data-tröskel (timmar, används tills frekvensen lärts in)",
+          "recent_readings_count": "Antal senaste avläsningar att exponera"
         },
         "data_description": {
           "polling_interval": "Hur ofta nya mätardata ska hämtas (15-120 minuter)",
@@ -287,7 +288,8 @@
           "leak_notify_enabled": "Om aktiverad skickar integrationen en notifiering när larmet växlar från av till på.",
           "leak_notify_service": "Tjänst att anropa i formatet 'domain.service'. Standard 'persistent_notification.create' visar ett kort i HA. Använd 'notify.mobile_app_<din_enhet>' för pushnotis till mobil.",
           "stale_data_factor": "Hur många gånger längre än mätarens observerade rapporteringsfrekvens som ska tolereras innan den flaggas som försenad. 3.0 = larm vid ~3× median-tiden mellan avläsningar.",
-          "stale_data_fallback_hours": "Tröskel som används de första timmarna efter installation, innan integrationen lärt sig mätarens rapporteringsfrekvens."
+          "stale_data_fallback_hours": "Tröskel som används de första timmarna efter installation, innan integrationen lärt sig mätarens rapporteringsfrekvens.",
+          "recent_readings_count": "Hur många senaste raw API-avläsningar som ska exponeras via recent_readings-attributet på Senaste avläsning-sensorn (1-200). Används i markdown-kort för att rendera en tabell med datum/tid/värde."
         }
       }
     }

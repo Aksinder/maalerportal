@@ -27,6 +27,10 @@ from .const import (
     CONF_CURRENCY,
     DEFAULT_CURRENCY,
     SUPPORTED_CURRENCIES,
+    CONF_RECENT_READINGS_COUNT,
+    DEFAULT_RECENT_READINGS_COUNT,
+    MIN_RECENT_READINGS_COUNT,
+    MAX_RECENT_READINGS_COUNT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -804,6 +808,9 @@ class OptionsFlow(config_entries.OptionsFlow):
         current_stale_fallback = self._config_entry.options.get(
             CONF_STALE_FALLBACK_HOURS, DEFAULT_STALE_FALLBACK_HOURS
         )
+        current_recent_count = self._config_entry.options.get(
+            CONF_RECENT_READINGS_COUNT, DEFAULT_RECENT_READINGS_COUNT
+        )
 
         return self.async_show_form(
             step_id="settings",
@@ -844,6 +851,16 @@ class OptionsFlow(config_entries.OptionsFlow):
                         CONF_STALE_FALLBACK_HOURS,
                         default=current_stale_fallback,
                     ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=168.0)),
+                    vol.Optional(
+                        CONF_RECENT_READINGS_COUNT,
+                        default=current_recent_count,
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_RECENT_READINGS_COUNT,
+                            max=MAX_RECENT_READINGS_COUNT,
+                        ),
+                    ),
                 }
             ),
         )

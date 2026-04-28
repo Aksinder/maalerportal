@@ -278,7 +278,8 @@
           "leak_notify_enabled": "Send notifikation ved lækagealarm",
           "leak_notify_service": "Notifikationstjeneste",
           "stale_data_factor": "Forsinkede-data-tærskel (multiplikator)",
-          "stale_data_fallback_hours": "Foreløbig tærskel (timer, indtil kadencen er lært)"
+          "stale_data_fallback_hours": "Foreløbig tærskel (timer, indtil kadencen er lært)",
+          "recent_readings_count": "Antal seneste aflæsninger at eksponere"
         },
         "data_description": {
           "polling_interval": "Hvor ofte der skal hentes nye målerdata (15-120 minutter)",
@@ -287,7 +288,8 @@
           "leak_notify_enabled": "Hvis aktiveret sender integrationen en notifikation når alarmen skifter fra fra til til.",
           "leak_notify_service": "Tjeneste at kalde i formatet 'domain.service'. Standard 'persistent_notification.create' viser et kort i HA. Brug 'notify.mobile_app_<din_enhed>' til push til mobil.",
           "stale_data_factor": "Hvor mange gange længere end målerens observerede rapporteringsinterval før den markeres som forsinket. 3.0 = alarm ved ~3× median-forsinkelsen mellem aflæsninger.",
-          "stale_data_fallback_hours": "Tærskel brugt de første timer efter installation, før integrationen har lært målerens rapporteringskadence."
+          "stale_data_fallback_hours": "Tærskel brugt de første timer efter installation, før integrationen har lært målerens rapporteringskadence.",
+          "recent_readings_count": "Hvor mange seneste raw API-aflæsninger der skal eksponeres via recent_readings-attributten på Seneste aflæsning-sensoren (1-200). Bruges i markdown-kort til at gengive en tabel med dato/tid/værdi."
         }
       }
     }

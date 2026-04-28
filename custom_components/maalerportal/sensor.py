@@ -8,7 +8,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.sensor import SensorEntity
 
-from .const import DOMAIN, DEFAULT_POLLING_INTERVAL
+from .const import (
+    DOMAIN,
+    DEFAULT_POLLING_INTERVAL,
+    CONF_RECENT_READINGS_COUNT,
+    DEFAULT_RECENT_READINGS_COUNT,
+)
 from .coordinator import MaalerportalCoordinator
 from .sensors import (
     MaalerportalMainSensor,
@@ -44,7 +49,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     config_data = hass.data[DOMAIN][config.entry_id]
-    
+
+    # User-configurable count of recent readings exposed on
+    # Senaste avläsning's recent_readings attribute.
+    recent_readings_count = int(
+        config.options.get(
+            CONF_RECENT_READINGS_COUNT, DEFAULT_RECENT_READINGS_COUNT
+        )
+    )
+
     # Get coordinators
     coordinators = config_data.get("coordinators", {})
     sensors = []
@@ -64,7 +77,12 @@ async def async_setup_entry(
         # One diagnostic timestamp sensor per installation showing when
         # the upstream meter last reported a reading.
         if meter_counters:
-            sensors.append(MaalerportalLastReadingSensor(coordinator))
+            sensors.append(
+                MaalerportalLastReadingSensor(
+                    coordinator,
+                    recent_readings_count=recent_readings_count,
+                )
+            )
         
     async_add_entities(sensors)
     

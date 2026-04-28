@@ -377,11 +377,19 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
     _attr_translation_key = "last_reading"
     _attr_icon = "mdi:clock-check-outline"
 
-    def __init__(self, coordinator: MaalerportalCoordinator) -> None:
+    def __init__(
+        self,
+        coordinator: MaalerportalCoordinator,
+        recent_readings_count: int = 30,
+    ) -> None:
         # No specific counter — we surface the freshest timestamp seen
         # across all counters on the installation.
         super().__init__(coordinator, counter=None)
         self._attr_unique_id = f"{self._installation_id}_last_reading"
+        # How many recent raw readings to surface in the
+        # recent_readings attribute. Configurable per integration entry
+        # via Options → Settings.
+        self._recent_readings_count = recent_readings_count
 
     def _handle_coordinator_update(self) -> None:
         """Force a state write on every coordinator refresh.
@@ -448,7 +456,10 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
                 rl = entry_data.get("readings_logs", {}).get(self._installation_id)
                 if rl is None:
                     continue
-                recent = rl.recent_readings(counter_id=primary_counter_id, n=30)
+                recent = rl.recent_readings(
+                    counter_id=primary_counter_id,
+                    n=self._recent_readings_count,
+                )
                 if recent:
                     attrs["recent_readings"] = [
                         {
