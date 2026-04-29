@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,24 @@ _LOGGER = logging.getLogger(__name__)
 
 _SUBDIR = "maalerportal"
 _HEADER = ["timestamp", "counter_type", "meter_counter_id", "value", "unit", "source"]
+
+
+def _normalize_timestamp(ts: str) -> str:
+    """Canonicalize any ISO-8601 timestamp to UTC with .000Z suffix.
+
+    The Målerportal API returns the same physical moment in two
+    different ISO formats depending on endpoint: ``/readings/latest``
+    uses UTC (``...T17:00:00.000Z``) while ``/readings/historical``
+    uses local time (``...T19:00:00.000+02:00``). Without normalization
+    the dedup key sees them as different rows and both end up in the
+    log — surfacing as visible duplicates in cards. Normalizing to a
+    single canonical form fixes both dedup and sorting.
+    """
+    try:
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError):
+        return ts  # leave unparseable strings alone
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 # Last N rows kept in memory for cheap "recent readings" lookups (used by
 # the LastReadingSensor's recent_readings attribute). The CSV is the
@@ -60,7 +79,22 @@ class ReadingsLog:
     async def async_load(self) -> None:
         """Initialize file (creates header if missing) and load existing keys."""
         await asyncio.to_thread(self._init_file_if_missing)
-        self._known, self._recent = await asyncio.to_thread(self._read_existing)
+        self._known, self._recent, needs_rewrite = await asyncio.to_thread(
+            self._read_existing
+        )
+        if needs_rewrite:
+            # Old CSV had timestamps in mixed timezone formats (e.g. one
+            # row in UTC ...Z and another in CEST ...+02:00 for the same
+            # moment). Normalize and dedup the file once.
+            await asyncio.to_thread(self._rewrite_normalized)
+            # Re-read the cleaned file so in-memory state matches disk.
+            self._known, self._recent, _ = await asyncio.to_thread(self._read_existing)
+            _LOGGER.info(
+                "Migrated readings log %s to canonical UTC timestamps "
+                "(now %d unique rows)",
+                self._path,
+                len(self._known),
+            )
         self._loaded = True
         _LOGGER.debug(
             "Loaded readings log %s with %d existing rows (%d in recent buffer)",
@@ -77,27 +111,83 @@ class ReadingsLog:
 
     def _read_existing(
         self,
-    ) -> tuple[set[tuple[str, str]], list[dict[str, Any]]]:
+    ) -> tuple[set[tuple[str, str]], list[dict[str, Any]], bool]:
         """Scan the CSV once to populate both the dedup key set and the
-        recent-rows ring buffer. Single read instead of two passes."""
+        recent-rows ring buffer.
+
+        Returns ``(keys, recent, needs_rewrite)``.  ``needs_rewrite`` is
+        True if any timestamp in the file isn't in canonical UTC ISO-Z
+        form — the caller should call :py:meth:`_rewrite_normalized`
+        to migrate the file.
+        """
         keys: set[tuple[str, str]] = set()
         rows: list[dict[str, Any]] = []
+        needs_rewrite = False
         if not self._path.exists():
-            return keys, rows
+            return keys, rows, needs_rewrite
         try:
             with self._path.open("r", encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     cid = row.get("meter_counter_id")
                     ts = row.get("timestamp")
-                    if cid and ts:
-                        keys.add((cid, ts))
-                        rows.append(dict(row))
+                    if not (cid and ts):
+                        continue
+                    norm_ts = _normalize_timestamp(ts)
+                    if norm_ts != ts:
+                        needs_rewrite = True
+                    key = (cid, norm_ts)
+                    if key in keys:
+                        # Already seen the canonical version of this
+                        # row in another (timezone-shifted) form.
+                        needs_rewrite = True
+                        continue
+                    keys.add(key)
+                    new_row = dict(row)
+                    new_row["timestamp"] = norm_ts
+                    rows.append(new_row)
         except OSError as err:
             _LOGGER.warning("Could not read readings log %s: %s", self._path, err)
-        # Sort by timestamp ascending; keep the tail.
         rows.sort(key=lambda r: r.get("timestamp", ""))
-        return keys, rows[-_RECENT_BUFFER_SIZE:]
+        return keys, rows[-_RECENT_BUFFER_SIZE:], needs_rewrite
+
+    def _rewrite_normalized(self) -> None:
+        """One-time migration: rewrite the CSV with canonical UTC
+        timestamps and dedup any rows that map to the same canonical
+        form (e.g. one row in CEST and one in UTC for the same moment).
+        """
+        if not self._path.exists():
+            return
+        try:
+            with self._path.open("r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                source_rows = [dict(r) for r in reader]
+        except OSError as err:
+            _LOGGER.warning("Could not read %s for rewrite: %s", self._path, err)
+            return
+        seen: set[tuple[str, str]] = set()
+        deduped: list[dict[str, Any]] = []
+        for row in source_rows:
+            cid = row.get("meter_counter_id")
+            ts = row.get("timestamp")
+            if not (cid and ts):
+                continue
+            norm_ts = _normalize_timestamp(ts)
+            key = (cid, norm_ts)
+            if key in seen:
+                continue
+            seen.add(key)
+            row["timestamp"] = norm_ts
+            deduped.append(row)
+        deduped.sort(key=lambda r: r.get("timestamp", ""))
+        try:
+            with self._path.open("w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=_HEADER)
+                writer.writeheader()
+                for row in deduped:
+                    writer.writerow({k: row.get(k, "") for k in _HEADER})
+        except OSError as err:
+            _LOGGER.warning("Could not rewrite %s: %s", self._path, err)
 
     async def async_record(
         self,
@@ -117,7 +207,10 @@ class ReadingsLog:
             return False
         if not timestamp or not meter_counter_id or value is None:
             return False
-        key = (meter_counter_id, timestamp)
+        # Canonicalize the timestamp so the same physical moment received
+        # via different endpoints (UTC vs local-tz) maps to one row.
+        norm_ts = _normalize_timestamp(timestamp)
+        key = (meter_counter_id, norm_ts)
         if key in self._known:
             return False
         async with self._lock:
@@ -128,7 +221,7 @@ class ReadingsLog:
                 await asyncio.to_thread(
                     self._append_row,
                     [
-                        timestamp,
+                        norm_ts,
                         counter_type or "",
                         meter_counter_id,
                         str(value),
@@ -144,7 +237,7 @@ class ReadingsLog:
             self._known.add(key)
             # Mirror to in-memory buffer (kept sorted oldest-first, capped).
             self._recent.append({
-                "timestamp": timestamp,
+                "timestamp": norm_ts,
                 "counter_type": counter_type or "",
                 "meter_counter_id": meter_counter_id,
                 "value": value,
