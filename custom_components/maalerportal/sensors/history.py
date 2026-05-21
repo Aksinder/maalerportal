@@ -28,22 +28,10 @@ from homeassistant.util import dt as dt_util
 from ..const import DOMAIN
 from ..coordinator import MaalerportalCoordinator
 from ..reconcile import compute_swap_offset
+from ..timeutils import parse_api_timestamp
 from .base import MaalerportalPollingSensor
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _parse_api_timestamp(timestamp: str | None) -> datetime | None:
-    """Parse an API timestamp into an aware datetime."""
-    if not timestamp:
-        return None
-    try:
-        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
 
 
 def _statistics_hour_start(timestamp: datetime, reading_type: str) -> datetime:
@@ -832,7 +820,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     if not timestamp_str:
                         continue
                     
-                    timestamp = _parse_api_timestamp(timestamp_str)
+                    timestamp = parse_api_timestamp(timestamp_str)
                     if timestamp is None:
                         continue
                     timestamp = _statistics_hour_start(timestamp, self._reading_type)
@@ -1164,7 +1152,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     if not timestamp_str:
                         continue
                     
-                    timestamp = _parse_api_timestamp(timestamp_str)
+                    timestamp = parse_api_timestamp(timestamp_str)
                     if timestamp is None:
                         continue
                     timestamp = _statistics_hour_start(timestamp, self._reading_type)

@@ -22,8 +22,9 @@ from homeassistant.const import (
     UnitOfPower,
 )
 
-from ..const import DOMAIN
+from ..const import DOMAIN, RECENT_BUFFER_SIZE
 from ..coordinator import MaalerportalCoordinator
+from ..timeutils import parse_api_timestamp
 from .base import (
     MaalerportalCoordinatorSensor,
     MaalerportalPollingSensor,
@@ -38,22 +39,9 @@ EVENT_METER_UPDATED = f"{DOMAIN}_meter_updated"
 _SV_WEEKDAYS = ["mån", "tis", "ons", "tors", "fre", "lör", "sön"]
 
 
-def _parse_api_timestamp(timestamp: str | None) -> datetime | None:
-    """Parse an API timestamp into an aware datetime."""
-    if not timestamp:
-        return None
-    try:
-        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
 def _localize_api_timestamp(timestamp: str | None) -> dict[str, str]:
     """Return local timestamp fields for user-facing table attributes."""
-    parsed = _parse_api_timestamp(timestamp)
+    parsed = parse_api_timestamp(timestamp)
     if parsed is None:
         return {}
     local = dt_util.as_local(parsed)
@@ -84,7 +72,7 @@ def _dashboard_usage_summary(readings: Iterable[dict[str, Any]]) -> dict[str, An
     """Build app-style water usage summaries from cumulative readings."""
     rows: list[tuple[datetime, float, str]] = []
     for reading in readings:
-        timestamp = _parse_api_timestamp(reading.get("timestamp"))
+        timestamp = parse_api_timestamp(reading.get("timestamp"))
         value = _numeric_value(reading.get("value"))
         if timestamp is None or value is None:
             continue
@@ -560,7 +548,7 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
             ts = counter.get("latestTimestamp")
             if not ts:
                 continue
-            parsed = _parse_api_timestamp(ts)
+            parsed = parse_api_timestamp(ts)
             if parsed is None:
                 continue
             if latest is None or parsed > latest:
@@ -605,7 +593,7 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
                     continue
                 summary_recent = rl.recent_readings(
                     counter_id=primary_counter_id,
-                    n=1500,
+                    n=RECENT_BUFFER_SIZE,
                 )
                 if summary_recent:
                     attrs.update(_dashboard_usage_summary(summary_recent))

@@ -17,9 +17,13 @@ SUPPORTED_CURRENCIES = ["SEK", "DKK", "NOK", "EUR"]
 
 SERVICE_FETCH_MORE_HISTORY = "fetch_more_history"
 
+# Last N rows ReadingsLog keeps in memory for cheap "recent readings"
+# lookups. The CSV is the canonical archive — this in-memory ring is just
+# a fast view, also used to build the dashboard usage summaries.
+RECENT_BUFFER_SIZE = 1500
+
 # How many recent raw readings to expose on the Senaste avläsning sensor
-# via the recent_readings attribute. Bounded by the in-memory buffer size
-# in readings_log.py (currently 1500).
+# via the recent_readings attribute. Bounded by RECENT_BUFFER_SIZE.
 CONF_RECENT_READINGS_COUNT = "recent_readings_count"
 DEFAULT_RECENT_READINGS_COUNT = 30
 MIN_RECENT_READINGS_COUNT = 1

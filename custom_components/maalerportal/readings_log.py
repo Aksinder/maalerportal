@@ -30,6 +30,8 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .const import RECENT_BUFFER_SIZE
+
 _LOGGER = logging.getLogger(__name__)
 
 _SUBDIR = "maalerportal"
@@ -52,12 +54,6 @@ def _normalize_timestamp(ts: str) -> str:
     except (ValueError, TypeError, AttributeError):
         return ts  # leave unparseable strings alone
     return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-# Last N rows kept in memory for cheap "recent readings" lookups (used by
-# the LastReadingSensor's recent_readings attribute). The CSV is the
-# canonical archive — this in-memory ring is just a fast view.
-_RECENT_BUFFER_SIZE = 1500
-
 
 class ReadingsLog:
     """Per-installation CSV append-only log."""
@@ -149,7 +145,7 @@ class ReadingsLog:
         except OSError as err:
             _LOGGER.warning("Could not read readings log %s: %s", self._path, err)
         rows.sort(key=lambda r: r.get("timestamp", ""))
-        return keys, rows[-_RECENT_BUFFER_SIZE:], needs_rewrite
+        return keys, rows[-RECENT_BUFFER_SIZE:], needs_rewrite
 
     def _rewrite_normalized(self) -> None:
         """One-time migration: rewrite the CSV with canonical UTC
@@ -244,11 +240,11 @@ class ReadingsLog:
                 "unit": unit or "",
                 "source": source,
             })
-            if len(self._recent) > _RECENT_BUFFER_SIZE:
+            if len(self._recent) > RECENT_BUFFER_SIZE:
                 # Re-sort defensively in case out-of-order records arrived
                 # (historical bulk imports often do).
                 self._recent.sort(key=lambda r: r.get("timestamp", ""))
-                del self._recent[: len(self._recent) - _RECENT_BUFFER_SIZE]
+                del self._recent[: len(self._recent) - RECENT_BUFFER_SIZE]
         return True
 
     def _append_row(self, row: list[str]) -> None:
