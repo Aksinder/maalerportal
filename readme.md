@@ -467,6 +467,45 @@ content: >-
   {%- endfor %}
 ```
 
+### App-style cards with Mushroom, Bubble Card and card-mod
+The `Senaste avläsning` sensor exposes app-style dashboard attributes
+that can be used directly in Lovelace:
+
+| Attribute | Purpose |
+|---|---|
+| `today_liters` / `yesterday_liters` | Today's and yesterday's consumption in liters |
+| `today_vs_yesterday_delta_liters` | Signed difference between today and yesterday |
+| `today_vs_yesterday_direction` | `down`, `up` or `flat` for trend styling |
+| `today_vs_yesterday_text` | Localized comparison text |
+| `last_7_days_liters` / `previous_7_days_liters` | Rolling 7-day totals |
+| `last_7_days_direction` / `last_7_days_text` | 7-day trend and label |
+| `daily_consumption` | Last 14 days as `{date, weekday, day_month, liters}` |
+| `hourly_consumption` | Latest available day as `{hour, liters}` |
+| `daily_max_liters` / `hourly_max_liters` | Max values for scaling bars |
+
+A complete Lovelace example is available in
+[`documentation/lovelace-app-cards.yaml`](documentation/lovelace-app-cards.yaml).
+It uses:
+
+- **Mushroom chips** for fresh-status / flow / leak indicators
+- **card-mod** for the app-like gray panels, rounded blue bars and
+  mobile sizing
+- **Bubble Card** for a large rounded "Visa detaljer" action button
+
+Replace the placeholder entity ids before pasting it into a dashboard:
+
+```yaml
+sensor.your_meter_senaste_avlasning
+sensor.your_meter_vattenmataravlasning
+sensor.your_meter_aktuellt_flode
+sensor.your_meter_akustiskt_brus
+binary_sensor.your_meter_misstankt_vattenlacka
+```
+
+The example intentionally uses standard Home Assistant markdown
+templating for the dynamic charts. That keeps the card reusable across
+meters without requiring custom frontend code.
+
 ## Troubleshooting
 
 ### Sensor shows "Unknown"

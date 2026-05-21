@@ -1,0 +1,411 @@
+# Målerportal app-style Lovelace cards
+#
+# Requirements:
+# - piitaya/lovelace-mushroom
+# - Clooos/bubble-card
+# - thomasloven/lovelace-card-mod
+#
+# Replace these placeholders with your own entity ids:
+# - sensor.your_meter_senaste_avlasning
+# - sensor.your_meter_vattenmataravlasning
+# - sensor.your_meter_aktuellt_flode
+# - sensor.your_meter_akustiskt_brus
+# - binary_sensor.your_meter_misstankt_vattenlacka
+
+type: vertical-stack
+cards:
+  - type: custom:mushroom-chips-card
+    alignment: center
+    chips:
+      - type: entity
+        entity: sensor.your_meter_senaste_avlasning
+        icon: mdi:clock-check-outline
+        content_info: state
+      - type: entity
+        entity: sensor.your_meter_aktuellt_flode
+        icon: mdi:water-sync
+        content_info: state
+      - type: entity
+        entity: binary_sensor.your_meter_misstankt_vattenlacka
+        icon: mdi:water-alert
+        content_info: state
+    card_mod:
+      style: |
+        ha-card {
+          --chip-box-shadow: none;
+          --chip-background: #f2f2f2;
+          --chip-border-radius: 20px;
+          --chip-height: 38px;
+          padding: 4px 10px 0;
+        }
+
+  - type: markdown
+    content: >-
+      {% set e = 'sensor.your_meter_senaste_avlasning' %}
+      {% set today = state_attr(e, 'today_liters') | int(0) %}
+      {% set dir = state_attr(e, 'today_vs_yesterday_direction') or 'flat' %}
+      {% set text = state_attr(e, 'today_vs_yesterday_text') or 'Ingen jämförelse ännu' %}
+      <div class="mp-hero">
+        <div class="mp-hero-value">
+          <span class="mp-trend mp-{{ dir }}">
+            {{ '↓' if dir == 'down' else '↑' if dir == 'up' else '→' }}
+          </span>
+          <span class="mp-number">{{ today }}</span><span class="mp-unit">L</span>
+        </div>
+        <div class="mp-hero-text">{{ text }}</div>
+      </div>
+      <div class="mp-split">
+        <div>
+          <div class="mp-label">Senaste 7 dagarna</div>
+          {% set week = state_attr(e, 'last_7_days_liters') | int(0) %}
+          {% set wdir = state_attr(e, 'last_7_days_direction') or 'flat' %}
+          <div class="mp-week">
+            <span class="mp-trend mp-{{ wdir }}">
+              {{ '↓' if wdir == 'down' else '↑' if wdir == 'up' else '→' }}
+            </span>
+            <span class="mp-week-number">{{ week }}</span><span class="mp-week-unit">L</span>
+          </div>
+          <div class="mp-note">{{ state_attr(e, 'last_7_days_text') or 'Inväntar historik' }}</div>
+        </div>
+        <div>
+          <div class="mp-label">Mätarställning</div>
+          <div class="mp-reading">{{ states('sensor.your_meter_vattenmataravlasning') }} {{ state_attr('sensor.your_meter_vattenmataravlasning', 'unit_of_measurement') or 'm³' }}</div>
+          <div class="mp-note">Senast {{ relative_time(states(e) | as_datetime) if states(e) not in ['unknown', 'unavailable'] else 'okänt' }} sedan</div>
+        </div>
+      </div>
+    card_mod:
+      style:
+        .: |
+          ha-card {
+            background: #eeeeee;
+            border: 0;
+            border-radius: 0;
+            box-shadow: none;
+            color: #4a4a4a;
+            overflow: hidden;
+          }
+          ha-markdown {
+            padding: 0 !important;
+          }
+        ha-markdown$: |
+          .mp-hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            align-items: center;
+            gap: 22px;
+            padding: 30px 28px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.75);
+          }
+          .mp-hero-value {
+            display: flex;
+            justify-content: flex-end;
+            align-items: baseline;
+            white-space: nowrap;
+          }
+          .mp-trend {
+            font-size: 34px;
+            font-weight: 800;
+            line-height: 1;
+            margin-right: 8px;
+          }
+          .mp-down { color: #169637; }
+          .mp-up { color: #d92323; }
+          .mp-flat { color: #777777; }
+          .mp-number {
+            font-size: 86px;
+            font-weight: 800;
+            line-height: .9;
+            letter-spacing: 0;
+          }
+          .mp-unit {
+            font-size: 44px;
+            font-weight: 500;
+            margin-left: 5px;
+          }
+          .mp-hero-text {
+            font-size: 30px;
+            font-weight: 500;
+            line-height: 1.15;
+          }
+          .mp-split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            min-height: 144px;
+          }
+          .mp-split > div {
+            padding: 28px 20px;
+            text-align: center;
+          }
+          .mp-split > div + div {
+            border-left: 2px solid rgba(255, 255, 255, 0.75);
+          }
+          .mp-label {
+            font-size: 22px;
+            font-weight: 500;
+            margin-bottom: 8px;
+          }
+          .mp-week {
+            display: flex;
+            justify-content: center;
+            align-items: baseline;
+            white-space: nowrap;
+          }
+          .mp-week-number {
+            font-size: 58px;
+            font-weight: 800;
+            line-height: .9;
+          }
+          .mp-week-unit {
+            font-size: 30px;
+            margin-left: 4px;
+          }
+          .mp-reading {
+            font-size: 30px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin: 16px 0 10px;
+            overflow-wrap: anywhere;
+          }
+          .mp-note {
+            font-size: 20px;
+            line-height: 1.15;
+          }
+          @media (max-width: 420px) {
+            .mp-hero {
+              grid-template-columns: 1fr;
+              gap: 10px;
+              padding: 24px 18px;
+              text-align: center;
+            }
+            .mp-hero-value {
+              justify-content: center;
+            }
+            .mp-number {
+              font-size: 70px;
+            }
+            .mp-hero-text {
+              font-size: 24px;
+            }
+          }
+
+  - type: custom:bubble-card
+    card_type: button
+    button_type: name
+    name: Visa detaljer
+    icon: mdi:chart-bar
+    tap_action:
+      action: navigate
+      navigation_path: /lovelace/vatten-detaljer
+    styles: |
+      .bubble-button-card-container {
+        background: #1084cf !important;
+        border-radius: 30px !important;
+        min-height: 70px !important;
+        margin: 26px 30px 14px !important;
+      }
+      .bubble-name {
+        color: white !important;
+        font-size: 24px !important;
+        font-weight: 800 !important;
+      }
+      .bubble-icon {
+        color: white !important;
+      }
+
+  - type: markdown
+    content: >-
+      {% set e = 'sensor.your_meter_senaste_avlasning' %}
+      {% set bars = state_attr(e, 'daily_consumption') or [] %}
+      <div class="mp-bars">
+      {% for b in bars[-7:] %}
+        {% set liters = b.liters | int(0) %}
+        <div class="mp-day">
+          <div class="mp-track">
+            <div class="mp-fill">
+              <span>{{ liters }} L</span>
+            </div>
+          </div>
+          <div class="mp-day-name">{{ b.weekday }}</div>
+          <div class="mp-day-date">{{ b.day_month }}</div>
+        </div>
+      {% endfor %}
+      </div>
+    card_mod:
+      style:
+        .: |
+          ha-card {
+            background: #f7f7f7;
+            border: 0;
+            box-shadow: none;
+            padding: 8px 12px 26px;
+          }
+          ha-markdown {
+            padding: 0 !important;
+          }
+        ha-markdown$: |
+          .mp-bars {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 16px;
+            align-items: end;
+            min-height: 430px;
+          }
+          .mp-day {
+            display: grid;
+            justify-items: center;
+            gap: 4px;
+            min-width: 0;
+          }
+          .mp-track {
+            position: relative;
+            width: min(64px, 100%);
+            height: 330px;
+            border-radius: 32px;
+            background: #bfbfbf;
+            overflow: hidden;
+          }
+          .mp-fill {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            min-height: 48px;
+            border-radius: 32px;
+            background: #1084cf;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 18px;
+            box-sizing: border-box;
+          }
+          {% set e = 'sensor.your_meter_senaste_avlasning' %}
+          {% set bars = state_attr(e, 'daily_consumption') or [] %}
+          {% set max_l = state_attr(e, 'daily_max_liters') | float(0) %}
+          {% for b in bars[-7:] %}
+            {% set liters = b.liters | int(0) %}
+            {% set pct = ((liters / max_l) * 100) | round(0) if max_l > 0 else 0 %}
+            {% set height = 14 if pct < 14 else pct %}
+            .mp-day:nth-child({{ loop.index }}) .mp-fill {
+              height: {{ height }}%;
+            }
+          {% endfor %}
+          .mp-fill span {
+            color: white;
+            font-size: 18px;
+            font-weight: 800;
+            line-height: 1;
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            white-space: nowrap;
+          }
+          .mp-day-name {
+            color: #4a4a4a;
+            font-size: 22px;
+            font-weight: 800;
+            line-height: 1;
+            margin-top: 10px;
+          }
+          .mp-day-date {
+            color: #666666;
+            font-size: 18px;
+            line-height: 1;
+          }
+          @media (max-width: 420px) {
+            .mp-bars {
+              gap: 10px;
+            }
+            .mp-track {
+              height: 280px;
+              width: min(46px, 100%);
+            }
+            .mp-fill span {
+              font-size: 15px;
+            }
+            .mp-day-name {
+              font-size: 18px;
+            }
+            .mp-day-date {
+              font-size: 15px;
+            }
+          }
+
+  - type: markdown
+    content: >-
+      {% set e = 'sensor.your_meter_senaste_avlasning' %}
+      {% set bars = state_attr(e, 'hourly_consumption') or [] %}
+      <div class="mp-hours">
+      {% for b in bars %}
+        {% set liters = b.liters | int(0) %}
+        <div class="mp-hour">
+          <div class="mp-hour-label">{{ b.hour }}</div>
+          <div class="mp-hour-track">
+            <div class="mp-hour-fill"></div>
+            <span>{{ liters }} L</span>
+          </div>
+        </div>
+      {% endfor %}
+      </div>
+    card_mod:
+      style:
+        .: |
+          ha-card {
+            background: #f7f7f7;
+            border: 0;
+            box-shadow: none;
+            padding: 10px 12px 30px;
+          }
+          ha-markdown {
+            padding: 0 !important;
+          }
+        ha-markdown$: |
+          .mp-hours {
+            display: grid;
+            gap: 16px;
+          }
+          .mp-hour {
+            display: grid;
+            grid-template-columns: 48px minmax(0, 1fr);
+            align-items: center;
+            gap: 12px;
+          }
+          .mp-hour-label {
+            color: #4a4a4a;
+            font-size: 22px;
+            font-weight: 800;
+            text-align: right;
+          }
+          .mp-hour-track {
+            position: relative;
+            height: 48px;
+            border-radius: 24px;
+            background: #bfbfbf;
+            overflow: hidden;
+          }
+          .mp-hour-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            min-width: 0;
+            border-radius: 24px;
+            background: #1084cf;
+          }
+          {% set e = 'sensor.your_meter_senaste_avlasning' %}
+          {% set bars = state_attr(e, 'hourly_consumption') or [] %}
+          {% set max_l = state_attr(e, 'hourly_max_liters') | float(0) %}
+          {% for b in bars %}
+            {% set liters = b.liters | int(0) %}
+            {% set pct = ((liters / max_l) * 100) | round(0) if max_l > 0 else 0 %}
+            .mp-hour:nth-child({{ loop.index }}) .mp-hour-fill {
+              width: {{ pct }}%;
+            }
+          {% endfor %}
+          .mp-hour-track span {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            height: 100%;
+            padding-left: 18px;
+            color: white;
+            font-size: 20px;
+            font-weight: 800;
+          }

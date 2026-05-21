@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.util import dt as dt_util
 from homeassistant.const import (
     UnitOfEnergy,
     UnitOfVolume,
@@ -32,6 +34,152 @@ _LOGGER = logging.getLogger(__name__)
 # Import event firing function - will be available after __init__ loads
 # We need to define the event name here or import it
 EVENT_METER_UPDATED = f"{DOMAIN}_meter_updated"
+
+_SV_WEEKDAYS = ["mån", "tis", "ons", "tors", "fre", "lör", "sön"]
+
+
+def _parse_api_timestamp(timestamp: str | None) -> datetime | None:
+    """Parse an API timestamp into an aware datetime."""
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _localize_api_timestamp(timestamp: str | None) -> dict[str, str]:
+    """Return local timestamp fields for user-facing table attributes."""
+    parsed = _parse_api_timestamp(timestamp)
+    if parsed is None:
+        return {}
+    local = dt_util.as_local(parsed)
+    return {
+        "timestamp": local.isoformat(),
+        "timestamp_utc": parsed.astimezone(timezone.utc).isoformat(),
+        "date": local.strftime("%Y-%m-%d"),
+        "time": local.strftime("%H:%M"),
+        "timezone": local.tzname() or "",
+    }
+
+
+def _numeric_value(value: Any) -> float | None:
+    try:
+        return float(str(value).replace(",", ".").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _delta_to_liters(delta: float, unit: str | None) -> float:
+    normalized = (unit or "").lower()
+    if normalized in {"m3", "m³", "m^3", "cubic_meter", "cubic_meters"}:
+        return delta * 1000
+    return delta
+
+
+def _dashboard_usage_summary(readings: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Build app-style water usage summaries from cumulative readings."""
+    rows: list[tuple[datetime, float, str]] = []
+    for reading in readings:
+        timestamp = _parse_api_timestamp(reading.get("timestamp"))
+        value = _numeric_value(reading.get("value"))
+        if timestamp is None or value is None:
+            continue
+        rows.append((timestamp, value, str(reading.get("unit") or "")))
+
+    rows.sort(key=lambda row: row[0])
+    if len(rows) < 2:
+        return {}
+
+    daily: dict[str, float] = defaultdict(float)
+    hourly: dict[str, float] = defaultdict(float)
+    for previous, current in zip(rows, rows[1:]):
+        previous_ts, previous_value, _ = previous
+        current_ts, current_value, unit = current
+        if current_ts <= previous_ts:
+            continue
+        delta = current_value - previous_value
+        if delta <= 0:
+            continue
+        liters = _delta_to_liters(delta, unit)
+        local = dt_util.as_local(current_ts)
+        local_hour = local.replace(minute=0, second=0, microsecond=0)
+        daily[local.date().isoformat()] += liters
+        hourly[local_hour.isoformat()] += liters
+
+    if not daily:
+        return {}
+
+    today = dt_util.now().date()
+    yesterday = today - timedelta(days=1)
+    daily_bars = []
+    for offset in range(13, -1, -1):
+        day = today - timedelta(days=offset)
+        value = round(daily.get(day.isoformat(), 0))
+        daily_bars.append(
+            {
+                "date": day.isoformat(),
+                "weekday": _SV_WEEKDAYS[day.weekday()],
+                "day_month": f"{day.day}/{day.month}",
+                "liters": value,
+            }
+        )
+
+    latest_day = max(datetime.fromisoformat(key).date() for key in daily)
+    hourly_bars = []
+    for hour in range(24):
+        local_hour = datetime(
+            latest_day.year,
+            latest_day.month,
+            latest_day.day,
+            hour,
+            tzinfo=dt_util.DEFAULT_TIME_ZONE,
+        )
+        hourly_bars.append(
+            {
+                "hour": f"{hour:02d}",
+                "liters": round(hourly.get(local_hour.isoformat(), 0)),
+            }
+        )
+
+    today_liters = round(daily.get(today.isoformat(), 0))
+    yesterday_liters = round(daily.get(yesterday.isoformat(), 0))
+    last_7_liters = round(
+        sum(daily.get((today - timedelta(days=offset)).isoformat(), 0) for offset in range(7))
+    )
+    previous_7_liters = round(
+        sum(daily.get((today - timedelta(days=offset)).isoformat(), 0) for offset in range(7, 14))
+    )
+    day_diff = today_liters - yesterday_liters
+    week_diff = last_7_liters - previous_7_liters
+
+    return {
+        "today_liters": today_liters,
+        "yesterday_liters": yesterday_liters,
+        "today_vs_yesterday_delta_liters": day_diff,
+        "today_vs_yesterday_direction": "down" if day_diff < 0 else "up" if day_diff > 0 else "flat",
+        "today_vs_yesterday_text": (
+            "Samma som igår"
+            if day_diff == 0
+            else f"{'Mindre' if day_diff < 0 else 'Mer'} {_SV_WEEKDAYS[today.weekday()]} än {_SV_WEEKDAYS[yesterday.weekday()]}"
+        ),
+        "last_7_days_liters": last_7_liters,
+        "previous_7_days_liters": previous_7_liters,
+        "last_7_days_delta_liters": week_diff,
+        "last_7_days_direction": "down" if week_diff < 0 else "up" if week_diff > 0 else "flat",
+        "last_7_days_text": (
+            "Samma som föregående 7 dagar"
+            if week_diff == 0
+            else f"{'Mindre' if week_diff < 0 else 'Mer'} än föregående 7 dagar"
+        ),
+        "daily_consumption": daily_bars,
+        "hourly_consumption": hourly_bars,
+        "daily_max_liters": max((item["liters"] for item in daily_bars), default=0),
+        "hourly_max_liters": max((item["liters"] for item in hourly_bars), default=0),
+    }
 
 
 class MaalerportalMainSensor(MaalerportalCoordinatorSensor):
@@ -412,9 +560,8 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
             ts = counter.get("latestTimestamp")
             if not ts:
                 continue
-            try:
-                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            except (TypeError, ValueError):
+            parsed = _parse_api_timestamp(ts)
+            if parsed is None:
                 continue
             if latest is None or parsed > latest:
                 latest = parsed
@@ -439,7 +586,7 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
             counter_type = counter.get("counterType")
             ts = counter.get("latestTimestamp")
             if counter_type and ts:
-                per_counter[counter_type] = ts
+                per_counter[counter_type] = _localize_api_timestamp(ts).get("timestamp", ts)
             if counter.get("isPrimary"):
                 primary_counter_id = counter.get("meterCounterId")
         if per_counter:
@@ -456,6 +603,12 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
                 rl = entry_data.get("readings_logs", {}).get(self._installation_id)
                 if rl is None:
                     continue
+                summary_recent = rl.recent_readings(
+                    counter_id=primary_counter_id,
+                    n=1500,
+                )
+                if summary_recent:
+                    attrs.update(_dashboard_usage_summary(summary_recent))
                 recent = rl.recent_readings(
                     counter_id=primary_counter_id,
                     n=self._recent_readings_count,
@@ -463,7 +616,7 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
                 if recent:
                     attrs["recent_readings"] = [
                         {
-                            "timestamp": r.get("timestamp"),
+                            **_localize_api_timestamp(r.get("timestamp")),
                             "value": r.get("value"),
                             "unit": r.get("unit"),
                         }

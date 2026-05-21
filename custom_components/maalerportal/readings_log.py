@@ -56,7 +56,7 @@ def _normalize_timestamp(ts: str) -> str:
 # Last N rows kept in memory for cheap "recent readings" lookups (used by
 # the LastReadingSensor's recent_readings attribute). The CSV is the
 # canonical archive — this in-memory ring is just a fast view.
-_RECENT_BUFFER_SIZE = 200
+_RECENT_BUFFER_SIZE = 1500
 
 
 class ReadingsLog:

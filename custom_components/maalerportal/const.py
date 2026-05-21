@@ -19,8 +19,8 @@ SERVICE_FETCH_MORE_HISTORY = "fetch_more_history"
 
 # How many recent raw readings to expose on the Senaste avläsning sensor
 # via the recent_readings attribute. Bounded by the in-memory buffer size
-# in readings_log.py (currently 200).
+# in readings_log.py (currently 1500).
 CONF_RECENT_READINGS_COUNT = "recent_readings_count"
 DEFAULT_RECENT_READINGS_COUNT = 30
 MIN_RECENT_READINGS_COUNT = 1
-MAX_RECENT_READINGS_COUNT = 200
+MAX_RECENT_READINGS_COUNT = 500

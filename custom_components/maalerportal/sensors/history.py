@@ -23,6 +23,7 @@ from homeassistant.const import (
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
 from ..coordinator import MaalerportalCoordinator
@@ -30,6 +31,37 @@ from ..reconcile import compute_swap_offset
 from .base import MaalerportalPollingSensor
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_api_timestamp(timestamp: str | None) -> datetime | None:
+    """Parse an API timestamp into an aware datetime."""
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _statistics_hour_start(timestamp: datetime, reading_type: str) -> datetime:
+    """Return the recorder UTC hour after local-time bucketing.
+
+    Målerportal readings are shown by local Swedish wall-clock hour in the
+    vendor app. Home Assistant stores statistics in UTC, so do all hour
+    bucketing in HA's configured local timezone first. That lets ZoneInfo
+    handle CET/CEST transitions instead of relying on a fixed offset.
+    """
+    local_hour = dt_util.as_local(timestamp).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if reading_type != "consumption":
+        local_hour = local_hour - timedelta(hours=1)
+    return local_hour.astimezone(timezone.utc)
 
 
 class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
@@ -800,25 +832,10 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     if not timestamp_str:
                         continue
                     
-                    # Parse timestamp - handle both Z suffix and explicit timezone offsets
-                    if timestamp_str.endswith("Z"):
-                        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                    else:
-                        timestamp = datetime.fromisoformat(timestamp_str)
-                    
-                    # Convert to UTC for Home Assistant statistics
-                    timestamp = timestamp.astimezone(timezone.utc)
-                    
-                    # Round to the start of the hour (in UTC)
-                    timestamp = timestamp.replace(minute=0, second=0, microsecond=0)
-                    
-                    # For counter-type meters, the API timestamp represents WHEN the reading was taken
-                    # (end of measurement period). We need to attribute it to the PREVIOUS hour.
-                    # Example: reading at 00:05 represents the meter state at end of 23:00-00:00 hour
-                    #          so it should be stored with start=23:00, not 00:00
-                    # For consumption-type, the timestamp is already correct from the API.
-                    if self._reading_type != "consumption":
-                        timestamp = timestamp - timedelta(hours=1)
+                    timestamp = _parse_api_timestamp(timestamp_str)
+                    if timestamp is None:
+                        continue
+                    timestamp = _statistics_hour_start(timestamp, self._reading_type)
                     
                     # Skip if we already have this timestamp
                     if self._last_inserted_timestamp and timestamp <= self._last_inserted_timestamp:
@@ -1147,16 +1164,10 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                     if not timestamp_str:
                         continue
                     
-                    if timestamp_str.endswith("Z"):
-                        timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                    else:
-                        timestamp = datetime.fromisoformat(timestamp_str)
-                    
-                    timestamp = timestamp.astimezone(timezone.utc)
-                    timestamp = timestamp.replace(minute=0, second=0, microsecond=0)
-                    
-                    if self._reading_type != "consumption":
-                        timestamp = timestamp - timedelta(hours=1)
+                    timestamp = _parse_api_timestamp(timestamp_str)
+                    if timestamp is None:
+                        continue
+                    timestamp = _statistics_hour_start(timestamp, self._reading_type)
                     
                     if self._reading_type == "consumption":
                         interval_value = reading.get("value")
