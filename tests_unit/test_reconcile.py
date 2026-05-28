@@ -27,6 +27,8 @@ _spec.loader.exec_module(_module)
 compute_swap_offset = _module.compute_swap_offset
 find_new_installations = _module.find_new_installations
 reconcile_installations = _module.reconcile_installations
+is_meter_swap = _module.is_meter_swap
+should_seed_previous_from_recorder = _module.should_seed_previous_from_recorder
 
 
 def _make_inst(
@@ -287,3 +289,91 @@ def test_compute_swap_offset_zero_displayed_sum_negative_offset():
     assert new_offset == -5.0
     # First reading after swap displays 0 (no history to anchor to).
     assert 5.0 + new_offset == 0.0
+
+
+# ---------------------------------------------------------------------------
+# should_seed_previous_from_recorder
+# ---------------------------------------------------------------------------
+
+
+def test_seed_skipped_on_full_fetch_even_with_existing_stats():
+    """Regression: a full re-fetch must NOT seed prev_* from recorder.
+
+    Seeding the newest stored value and then reprocessing oldest-first makes
+    the first reading look like a huge drop -> false meter swap that compounds
+    the offset on every startup. This was the root cause of the reported
+    'Meter swap detected ... 9.6800 -> 0.3550' warning.
+    """
+    assert should_seed_previous_from_recorder(
+        force_full_fetch=True, has_existing_stats=True
+    ) is False
+
+
+def test_seed_used_on_incremental_update_with_existing_stats():
+    assert should_seed_previous_from_recorder(
+        force_full_fetch=False, has_existing_stats=True
+    ) is True
+
+
+def test_seed_skipped_without_existing_stats():
+    assert should_seed_previous_from_recorder(
+        force_full_fetch=False, has_existing_stats=False
+    ) is False
+    assert should_seed_previous_from_recorder(
+        force_full_fetch=True, has_existing_stats=False
+    ) is False
+
+
+# ---------------------------------------------------------------------------
+# is_meter_swap
+# ---------------------------------------------------------------------------
+
+_THRESHOLD = 0.5  # mirrors MaalerportalStatisticSensor._swap_drop_threshold
+
+
+def test_is_meter_swap_true_on_real_swap_with_serial_flag():
+    """Big drop + utility-reported serial change = genuine swap."""
+    assert is_meter_swap(
+        prev_raw_value=9.680,
+        prev_displayed_sum=116.0,
+        value=0.355,
+        swap_pending=True,
+        drop_threshold=_THRESHOLD,
+    ) is True
+
+
+def test_is_meter_swap_false_without_serial_flag():
+    """Regression: a big drop WITHOUT a serial change must not re-anchor.
+
+    The old data-only fallback (value < prev * 0.1) treated this as a swap
+    and silently inflated the offset. Re-anchoring now requires swap_pending.
+    """
+    assert is_meter_swap(
+        prev_raw_value=9.680,
+        prev_displayed_sum=116.0,
+        value=0.355,
+        swap_pending=False,
+        drop_threshold=_THRESHOLD,
+    ) is False
+
+
+def test_is_meter_swap_false_when_no_significant_drop():
+    """Serial flag set but value did not drop below threshold -> not a swap."""
+    assert is_meter_swap(
+        prev_raw_value=9.680,
+        prev_displayed_sum=116.0,
+        value=9.700,
+        swap_pending=True,
+        drop_threshold=_THRESHOLD,
+    ) is False
+
+
+def test_is_meter_swap_false_when_no_previous_values():
+    """First reading in a full-fetch batch has no previous value yet."""
+    assert is_meter_swap(
+        prev_raw_value=None,
+        prev_displayed_sum=None,
+        value=0.355,
+        swap_pending=True,
+        drop_threshold=_THRESHOLD,
+    ) is False

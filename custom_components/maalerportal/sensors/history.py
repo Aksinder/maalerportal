@@ -27,7 +27,11 @@ from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
 from ..coordinator import MaalerportalCoordinator
-from ..reconcile import compute_swap_offset
+from ..reconcile import (
+    compute_swap_offset,
+    is_meter_swap,
+    should_seed_previous_from_recorder,
+)
 from ..timeutils import parse_api_timestamp
 from .base import MaalerportalPollingSensor
 
@@ -769,7 +773,16 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             )
             prev_raw_value: Optional[float] = None
             prev_displayed_sum: Optional[float] = None
-            if has_existing_stats and last_stats and self._statistic_id in last_stats:
+            # Only seed from recorder on incremental updates. On a full
+            # re-fetch the cursor is reset and readings are reprocessed
+            # oldest-first, so seeding the newest stored value would look
+            # like a huge drop against the oldest reading — a false swap
+            # that compounds the offset on every startup.
+            if (
+                should_seed_previous_from_recorder(force_full_fetch, has_existing_stats)
+                and last_stats
+                and self._statistic_id in last_stats
+            ):
                 last_row = last_stats[self._statistic_id][0]
                 prev_raw_value = last_row.get("state")
                 prev_displayed_sum = last_row.get("sum")
@@ -865,20 +878,18 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                         else:
                             value = float(value)
 
-                        # Detect a meter swap: sudden drop in raw value within
-                        # this batch of readings. A swap is recognised when:
-                        #   - we have a previous raw value (existing stats or
-                        #     earlier reading in this batch), AND
-                        #   - the new raw value is significantly lower
-                        #     (< prev * threshold), AND
-                        #   - either reconciliation has flagged a pending
-                        #     swap, OR we have no flag but the drop is
-                        #     unmistakable (defensive fallback).
-                        if (
-                            prev_raw_value is not None
-                            and prev_displayed_sum is not None
-                            and value < prev_raw_value * self._swap_drop_threshold
-                            and (swap_pending or value < prev_raw_value * 0.1)
+                        # Detect a meter swap: a sudden drop in raw value that
+                        # coincides with a utility-reported serial change
+                        # (swap_pending). Re-anchoring is gated on the serial
+                        # change on purpose — a data-only fallback used to
+                        # cause false positives that silently inflated the
+                        # offset.
+                        if is_meter_swap(
+                            prev_raw_value,
+                            prev_displayed_sum,
+                            value,
+                            swap_pending,
+                            self._swap_drop_threshold,
                         ):
                             new_offset = compute_swap_offset(
                                 prev_displayed_sum, value

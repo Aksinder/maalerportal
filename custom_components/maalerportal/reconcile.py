@@ -87,6 +87,51 @@ def find_new_installations(
     return [i for i in fresh if i.get("installationId") not in saved_ids]
 
 
+def should_seed_previous_from_recorder(
+    force_full_fetch: bool, has_existing_stats: bool
+) -> bool:
+    """Whether to seed ``prev_raw_value``/``prev_displayed_sum`` from recorder.
+
+    The swap detector compares each incoming raw reading against the previous
+    one. On a normal incremental update the previous value is the last value
+    stored in the recorder, so seeding from recorder is correct.
+
+    On a *full re-fetch* the cursor is reset and readings are reprocessed
+    oldest-first. Seeding from the recorder would then compare the **newest**
+    stored value against the **oldest** incoming reading — an apparent huge
+    drop that looks exactly like a meter swap. That false positive re-anchors
+    the offset and, because a full fetch runs on every startup, compounds the
+    error on each restart. So only seed on incremental updates.
+    """
+    return has_existing_stats and not force_full_fetch
+
+
+def is_meter_swap(
+    prev_raw_value: float | None,
+    prev_displayed_sum: float | None,
+    value: float,
+    swap_pending: bool,
+    drop_threshold: float,
+) -> bool:
+    """Decide whether ``value`` represents a meter swap vs. the previous reading.
+
+    A swap is recognised only when the utility has actually reported a new
+    meter serial (``swap_pending``, raised by :func:`reconcile_installations`)
+    **and** the raw value dropped below ``prev_raw_value * drop_threshold``.
+
+    Requiring the serial-change flag is deliberate: an earlier data-only
+    fallback (re-anchor whenever the value fell below 10% of the previous one)
+    produced false positives — e.g. backfill ordering or counter rollover —
+    that silently inflated the offset. The authoritative signal for a real
+    swap is the serial change, so gate re-anchoring on it.
+    """
+    if prev_raw_value is None or prev_displayed_sum is None:
+        return False
+    if not swap_pending:
+        return False
+    return value < prev_raw_value * drop_threshold
+
+
 def compute_swap_offset(
     last_displayed_sum: float, first_new_raw_value: float
 ) -> float:
