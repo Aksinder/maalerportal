@@ -484,31 +484,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         )
 
         if rebuild:
-            # Clear the mirror sensor's statistics before rebuilding. The
-            # rebuild only re-imports rows at timestamps that have a reading,
-            # so a stale row sitting at an hour with no reading (e.g. a spike
-            # left by a previously mis-anchored offset) would otherwise
-            # survive. Clearing first guarantees a clean series; the rebuild
-            # re-mirrors correct rows. The recorder runs the queued clear
-            # before the subsequent import (FIFO), so ordering holds. The
-            # dedicated stats-only sensor is left alone — it has no orphan
-            # rows and the rebuild overwrites it by timestamp anyway.
-            from homeassistant.components.recorder import get_instance
-
-            main_entity_id = self._find_main_entity_id()
-            if main_entity_id:
-                try:
-                    get_instance(self.hass).async_clear_statistics([main_entity_id])
-                    _LOGGER.warning(
-                        "Cleared mirror statistics for %s before rebuild",
-                        main_entity_id,
-                    )
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "Could not clear mirror statistics for %s: %s",
-                        main_entity_id,
-                        err,
-                    )
             await self._async_update_statistics(force_full_fetch=True)
 
     async def async_added_to_hass(self) -> None:
@@ -596,73 +571,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 if inst.get("installationId") == self._installation_id:
                     return entry_id
         return None
-
-    def _find_main_entity_id(self) -> Optional[str]:
-        """Look up the Main sensor's entity_id for this installation.
-
-        The Main sensor (Vattenmätaravläsning) is created with
-        unique_id ``{installation_id}_main`` for primary counter-type
-        meters. Returns None for consumption-type or secondary counters
-        where no Main sensor exists.
-        """
-        if self._reading_type == "consumption":
-            return None
-        if self._counter and not self._counter.get("isPrimary", False):
-            return None
-        try:
-            registry = er.async_get(self.hass)
-        except Exception:  # noqa: BLE001
-            return None
-        target_unique_id = f"{self._installation_id}_main"
-        for entity in registry.entities.values():
-            if entity.platform != DOMAIN:
-                continue
-            if entity.unique_id == target_unique_id:
-                return entity.entity_id
-        return None
-
-    def _mirror_statistics_to_main(self, statistics: list) -> None:
-        """Mirror imported statistics onto the Main sensor's statistic_id.
-
-        Without this, only the dedicated stats-only entity carries the
-        backfilled history. That entity has ``state=unknown`` by design,
-        which breaks history-graph cards and confuses users browsing
-        their water meter device card. Mirroring lets users use the
-        natural Vattenmätaravläsning entity in any chart card.
-
-        Skipped silently when there is no Main sensor (consumption-type
-        meters, secondary counters) or when the entity registry lookup
-        fails.
-        """
-        if not statistics:
-            return
-        main_entity_id = self._find_main_entity_id()
-        if main_entity_id is None:
-            return
-        from homeassistant.components.recorder.models import (
-            StatisticMeanType,
-            StatisticMetaData,
-        )
-        from homeassistant.components.recorder.statistics import (
-            async_import_statistics,
-        )
-        main_metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            mean_type=StatisticMeanType.NONE,
-            # name=None lets HA pick up the entity's friendly name on render
-            name=None,
-            source="recorder",
-            statistic_id=main_entity_id,
-            unit_of_measurement=self._stat_unit,
-            unit_class=self._unit_class,
-        )
-        async_import_statistics(self.hass, main_metadata, statistics)
-        _LOGGER.info(
-            "Mirrored %d historical stats to Main sensor %s",
-            len(statistics),
-            main_entity_id,
-        )
 
     async def async_update(self) -> None:
         """Update statistics from historical API data."""
@@ -1042,13 +950,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             # This imports into the sensor's existing statistics
             async_import_statistics(self.hass, metadata, statistics)
 
-            # Mirror onto the Main sensor's statistic_id so users see the
-            # same history on the user-friendly entity (Vattenmätaravläsning)
-            # — its native_value is "live" and Statistics graph + history
-            # cards render naturally there. The dedicated Stats sensor
-            # remains as a stable Energy Dashboard target.
-            self._mirror_statistics_to_main(statistics)
-
             # Update last inserted timestamp
             if statistics:
                 self._last_inserted_timestamp = statistics[-1]["start"]
@@ -1285,7 +1186,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             
             # Insert older statistics
             async_import_statistics(self.hass, metadata, statistics)
-            self._mirror_statistics_to_main(statistics)
 
             _LOGGER.info(
                 "Inserted %d older statistics records for %s (from %s to %s)",
