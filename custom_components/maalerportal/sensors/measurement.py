@@ -183,28 +183,34 @@ class MaalerportalMainSensor(MaalerportalCoordinatorSensor):
         
         self._attr_unique_id = f"{self._installation_id}_main"
         
-        # Set attributes based on counter type
+        # Set attributes based on counter type. NOTE: this entity deliberately
+        # has NO state_class. The Statistics sensor backfills this entity's
+        # long-term statistics via async_import_statistics
+        # (see history.py::_mirror_statistics_to_main). A state_class would make
+        # the recorder ALSO auto-compile native statistics for the same
+        # statistic_id, and the two writers disagree on sum semantics — the
+        # recorder tracks cumulative consumption while the mirror imports the
+        # absolute meter reading. The clash corrupts the series (large negative
+        # "change" spikes at hours one writer covers and the other doesn't).
+        # Leaving state_class unset makes the mirrored import the sole writer.
         counter_type = counter.get("counterType", "").lower()
         if counter_type in ["coldwater", "hotwater"]:
             self._attr_translation_key = "meter_reading_water"
             self._attr_device_class = SensorDeviceClass.WATER
             self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
-            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         elif counter_type in ["electricityfromgrid", "electricitytogrid"]:
             self._attr_translation_key = "meter_reading_electricity"
             self._attr_device_class = SensorDeviceClass.ENERGY
             self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         elif counter_type == "heat":
             self._attr_translation_key = "meter_reading_heat"
             self._attr_device_class = SensorDeviceClass.ENERGY
             self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         else:
             self._attr_translation_key = "meter_reading"
             self._attr_device_class = None
             self._attr_native_unit_of_measurement = counter.get("unit")
-            self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_state_class = None
 
     def _update_from_meter_counters(self, meter_counters: list[dict]) -> None:
         """Update main sensor from primary counter."""
