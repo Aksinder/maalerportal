@@ -42,3 +42,37 @@ fetch_more_history:
           min: 1
           max: 365
           unit_of_measurement: days
+
+reset_meter_offset:
+  name: Reset meter offset
+  description: >-
+    Clear a counter's stored meter-swap offset and rebuild its statistics so
+    the displayed sum equals the raw meter reading again. Recovery tool for a
+    mis-anchored offset. Specify at least one of Statistic Sensor or
+    Installation ID so the reset is scoped to the intended meter(s).
+  fields:
+    entity_id:
+      name: Statistic Sensor
+      description: The statistic sensor(s) whose offset should be reset.
+      required: false
+      selector:
+        entity:
+          integration: maalerportal
+          domain: sensor
+          multiple: true
+    installation_id:
+      name: Installation ID
+      description: Reset all statistic sensors for this installation.
+      required: false
+      example: "abc123-def456"
+      selector:
+        text:
+    rebuild_statistics:
+      name: Rebuild statistics
+      description: >-
+        Re-import up to a year of history after clearing the offset so past
+        sums are corrected in place. Disable to only clear the offset.
+      required: false
+      default: true
+      selector:
+        boolean:

@@ -449,6 +449,43 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             attrs["last_inserted_timestamp"] = self._last_inserted_timestamp.isoformat()
         return attrs
 
+    async def async_reset_meter_offset(self, rebuild: bool = True) -> None:
+        """Clear this counter's meter-swap offset and optionally rebuild stats.
+
+        Recovery tool (exposed via the ``reset_meter_offset`` service) for a
+        previously mis-anchored offset: clears the persisted offset, zeroes
+        the in-memory offset so ``displayed_sum = raw_value``, then rebuilds
+        statistics from scratch so historical sums are corrected in place
+        (``async_import_statistics`` overwrites rows by timestamp). The mirror
+        onto the main sensor is refreshed by the same rebuild.
+        """
+        if self._reading_type == "consumption":
+            _LOGGER.debug(
+                "reset_meter_offset is a no-op for consumption sensor %s",
+                self._statistic_id,
+            )
+            return
+
+        entry_id = self._get_entry_id()
+        counter_id = self._counter.get("meterCounterId")
+        if entry_id and counter_id:
+            offset_store = self.hass.data.get(DOMAIN, {}).get(entry_id, {}).get(
+                "offset_store"
+            )
+            if offset_store is not None:
+                await offset_store.async_clear(self._installation_id, counter_id)
+
+        old_offset = self._meter_offset
+        self._meter_offset = 0.0
+        _LOGGER.warning(
+            "Reset meter offset for %s: %.4f -> 0.0",
+            self._statistic_id,
+            old_offset,
+        )
+
+        if rebuild:
+            await self._async_update_statistics(force_full_fetch=True)
+
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass - restore state and fetch data."""
         await super().async_added_to_hass()

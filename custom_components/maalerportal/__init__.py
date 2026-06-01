@@ -47,9 +47,11 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 # Service constants
 SERVICE_REFRESH = "refresh"
 SERVICE_FETCH_MORE_HISTORY = "fetch_more_history"
+SERVICE_RESET_METER_OFFSET = "reset_meter_offset"
 ATTR_INSTALLATION_ID = "installation_id"
 ATTR_FROM_DAYS = "from_days"
 ATTR_TO_DAYS = "to_days"
+ATTR_REBUILD_STATISTICS = "rebuild_statistics"
 
 # Event constants
 EVENT_METER_UPDATED = f"{DOMAIN}_meter_updated"
@@ -64,6 +66,19 @@ SERVICE_FETCH_MORE_HISTORY_SCHEMA = vol.Schema({
     vol.Optional(ATTR_FROM_DAYS, default=60): vol.Coerce(int),
     vol.Optional(ATTR_TO_DAYS, default=30): vol.Coerce(int),
 })
+
+# Require an explicit target so a no-arg call can't wipe every meter's
+# offset (which would break continuity for any meter with a legitimate swap).
+SERVICE_RESET_METER_OFFSET_SCHEMA = vol.Schema(
+    vol.All(
+        {
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_ids,
+            vol.Optional(ATTR_INSTALLATION_ID): str,
+            vol.Optional(ATTR_REBUILD_STATISTICS, default=True): cv.boolean,
+        },
+        cv.has_at_least_one_key(ATTR_ENTITY_ID, ATTR_INSTALLATION_ID),
+    )
+)
 
 
 async def _fetch_fresh_installations(
@@ -316,6 +331,33 @@ class MeterOffsetStore:
             offset,
         )
 
+    async def async_clear(
+        self, installation_id: str, counter_id: str | None = None
+    ) -> None:
+        """Remove a persisted offset and re-save.
+
+        With ``counter_id`` set, clears just that counter. With it ``None``,
+        clears every counter for the installation. Used by the
+        ``reset_meter_offset`` service to recover from a mis-anchored offset.
+        """
+        if not self._data:
+            return
+        counters = self._data.get(installation_id)
+        if counters is None:
+            return
+        if counter_id is None:
+            self._data.pop(installation_id, None)
+        else:
+            counters.pop(counter_id, None)
+            if not counters:
+                self._data.pop(installation_id, None)
+        await self._store.async_save(self._data)
+        _LOGGER.info(
+            "Cleared meter offset for installation %s counter %s",
+            installation_id,
+            counter_id or "ALL",
+        )
+
 
 def is_swap_pending(
     hass: HomeAssistant, entry_id: str, installation_id: str
@@ -540,10 +582,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             _LOGGER.warning("Sensor %s does not support fetching history", sensor.entity_id)
 
         hass.services.async_register(
-            DOMAIN, 
-            SERVICE_FETCH_MORE_HISTORY, 
-            async_fetch_history_service, 
+            DOMAIN,
+            SERVICE_FETCH_MORE_HISTORY,
+            async_fetch_history_service,
             schema=SERVICE_FETCH_MORE_HISTORY_SCHEMA
+        )
+
+    # Register reset-meter-offset service (only once). Clears a counter's
+    # persisted meter-swap offset and (by default) rebuilds its statistics so
+    # displayed sums equal the raw meter readings again. Recovery tool for a
+    # previously mis-anchored offset.
+    if not hass.services.has_service(DOMAIN, SERVICE_RESET_METER_OFFSET):
+        async def async_reset_meter_offset_service(call: ServiceCall) -> None:
+            """Handle reset_meter_offset service call."""
+            entity_ids = call.data.get(ATTR_ENTITY_ID)
+            installation_id = call.data.get(ATTR_INSTALLATION_ID)
+            rebuild = call.data.get(ATTR_REBUILD_STATISTICS, True)
+            if isinstance(entity_ids, str):
+                entity_ids = [entity_ids]
+
+            matched = 0
+            for entry_id, entry_data in hass.data[DOMAIN].items():
+                for sensor in entry_data.get("sensors", []):
+                    # Only statistic sensors expose offset reset.
+                    if not hasattr(sensor, "async_reset_meter_offset"):
+                        continue
+                    if entity_ids and sensor.entity_id not in entity_ids:
+                        continue
+                    if installation_id and getattr(
+                        sensor, "_installation_id", None
+                    ) != installation_id:
+                        continue
+                    matched += 1
+                    _LOGGER.info(
+                        "Resetting meter offset for %s (rebuild=%s)",
+                        sensor.entity_id,
+                        rebuild,
+                    )
+                    hass.async_create_task(
+                        sensor.async_reset_meter_offset(rebuild=rebuild)
+                    )
+
+            if matched == 0:
+                _LOGGER.warning(
+                    "reset_meter_offset: no matching statistic sensors "
+                    "(entity_id=%s, installation_id=%s)",
+                    entity_ids,
+                    installation_id,
+                )
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RESET_METER_OFFSET,
+            async_reset_meter_offset_service,
+            schema=SERVICE_RESET_METER_OFFSET_SCHEMA,
         )
 
     return True
