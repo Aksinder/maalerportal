@@ -484,6 +484,31 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
         )
 
         if rebuild:
+            # Clear the mirror sensor's statistics before rebuilding. The
+            # rebuild only re-imports rows at timestamps that have a reading,
+            # so a stale row sitting at an hour with no reading (e.g. a spike
+            # left by a previously mis-anchored offset) would otherwise
+            # survive. Clearing first guarantees a clean series; the rebuild
+            # re-mirrors correct rows. The recorder runs the queued clear
+            # before the subsequent import (FIFO), so ordering holds. The
+            # dedicated stats-only sensor is left alone — it has no orphan
+            # rows and the rebuild overwrites it by timestamp anyway.
+            from homeassistant.components.recorder import get_instance
+
+            main_entity_id = self._find_main_entity_id()
+            if main_entity_id:
+                try:
+                    get_instance(self.hass).async_clear_statistics([main_entity_id])
+                    _LOGGER.warning(
+                        "Cleared mirror statistics for %s before rebuild",
+                        main_entity_id,
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Could not clear mirror statistics for %s: %s",
+                        main_entity_id,
+                        err,
+                    )
             await self._async_update_statistics(force_full_fetch=True)
 
     async def async_added_to_hass(self) -> None:
