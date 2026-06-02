@@ -8,29 +8,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  tests:
+  # Dependency-free pure-logic tests. These stub out Home Assistant, so they
+  # must run WITHOUT the HA test harness installed — otherwise the
+  # pytest-homeassistant-custom-component plugin auto-loads and clashes with
+  # the stubs. Hence a separate job with only pytest installed.
+  unit-tests:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.12", "3.13"]
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+      - name: Run unit tests
+        run: pytest tests_unit/ -v
 
+  # Integration tests that run against the real Home Assistant test harness.
+  integration-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements_test.txt
-
-      - name: Run unit tests (dependency-free)
-        run: |
-          pytest tests_unit/ -v
-
-      - name: Run integration tests (Home Assistant harness)
-        run: |
-          pytest tests/ -v
+      - name: Run integration tests
+        run: pytest tests/ -v
