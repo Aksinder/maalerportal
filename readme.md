@@ -480,75 +480,67 @@ content: >-
 ### App-style dashboard cards
 
 The integration ships a ready-made, phone-app-style dashboard for a water
-meter — a hero "today vs yesterday" panel, a 7-day trend, a meter-reading
-panel, daily and hourly bar charts, and status chips for flow and leak
-alarm. The full Lovelace YAML lives in
+meter — status chips (last reading / flow / leak), a hero "today vs
+yesterday" panel with a 7-day trend, and daily + hourly consumption bar
+charts. Paste it as a single Manual card. The full Lovelace YAML lives in
 [`documentation/lovelace-app-cards.yaml`](documentation/lovelace-app-cards.yaml).
 
-It reads app-style summary attributes that the `Senaste avläsning` sensor
-exposes (all consumption figures are in **liters**, derived from the meter
-readings the integration logs):
+The hero panel reads app-style summary attributes that the `Senaste
+avläsning` sensor exposes (consumption figures are in **liters**):
 
 | Attribute | Purpose |
 |---|---|
 | `today_liters` / `yesterday_liters` | Today's and yesterday's consumption |
-| `today_vs_yesterday_delta_liters` | Signed difference between today and yesterday |
-| `today_vs_yesterday_direction` | `down`, `up` or `flat` for trend styling |
+| `today_vs_yesterday_direction` | `down`, `up` or `flat` for the trend icon/color |
 | `today_vs_yesterday_text` | Localized comparison text |
 | `last_7_days_liters` / `previous_7_days_liters` | Rolling 7-day totals |
 | `last_7_days_direction` / `last_7_days_text` | 7-day trend and label |
-| `daily_consumption` | Last 14 days as `{date, weekday, day_month, liters}` |
-| `hourly_consumption` | Latest available day as `{hour, liters}` |
-| `daily_max_liters` / `hourly_max_liters` | Max values for scaling bars |
+| `daily_consumption` / `hourly_consumption` | Per-day / per-hour liters (also usable for custom cards) |
+
+The bar charts don't use those attributes — they read the
+`Kallvatten (Energi-dashboard)` statistics sensor directly (its `change`
+statistic per day/hour), so they get the full, clean, backfilled history.
 
 #### 1. Install the required custom cards (HACS → Frontend)
 
-The dashboard uses three community frontend cards. Install each from HACS,
+The dashboard uses two community frontend cards. Install each from HACS,
 then reload your browser:
 
-- [Mushroom](https://github.com/piitaya/lovelace-mushroom) — status chips
-- [card-mod](https://github.com/thomasloven/lovelace-card-mod) — the
-  app-like gray panels, rounded blue bars and mobile sizing
-- [Bubble Card](https://github.com/Clooos/Bubble-Card) — the large rounded
-  "Visa detaljer" action button
+- [Mushroom](https://github.com/piitaya/lovelace-mushroom) — status chips + hero panel
+- [apexcharts-card](https://github.com/RomRider/apexcharts-card) — the daily / hourly bar charts
 
 #### 2. Find your entity ids
 
 Open one of your meter's entities and note the prefix (it includes the
 address and meter serial), e.g. `sensor.klostergatan_6_..._senaste_avlasning`.
-The dashboard references five entities that all share that prefix:
+The card references entities that all share that prefix:
 
 | Placeholder in the YAML | What it is |
 |---|---|
-| `sensor.your_meter_senaste_avlasning` | Last reading + all the summary attributes |
-| `sensor.your_meter_vattenmataravlasning` | Meter reading (m³) shown in the panel |
+| `sensor.your_meter_senaste_avlasning` | Last reading + the summary attributes (chips + hero) |
 | `sensor.your_meter_aktuellt_flode` | Current flow (L/h) chip |
-| `sensor.your_meter_akustiskt_brus` | Acoustic noise chip (optional) |
 | `binary_sensor.your_meter_misstankt_vattenlacka` | Leak-alarm chip |
+| `sensor.your_meter_vattenmataravlasning` | Live meter reading (hero tap action) |
+| `sensor.your_meter_kallvatten_energi_dashboard` | Statistics source for the charts |
 
-#### 3. Add the dashboard
+#### 3. Add the card
 
 1. Copy the contents of
    [`documentation/lovelace-app-cards.yaml`](documentation/lovelace-app-cards.yaml).
-2. In your dashboard: **Edit dashboard → Add card → Manual**, and paste it
-   (or paste into a YAML-mode dashboard / view).
-3. Replace every `sensor.your_meter_*` / `binary_sensor.your_meter_*`
-   placeholder with your own entity ids from step 2. A find-and-replace of
-   the `your_meter` prefix is the quickest way.
-4. (Optional) The "Visa detaljer" button navigates to
-   `navigation_path: /lovelace/vatten-detaljer` — point it at a view of
-   your choice or remove the `tap_action`.
+2. In your dashboard: **Edit dashboard → Add card → Manual**, and paste it.
+3. Replace every `your_meter` prefix with your own (a find-and-replace of
+   `your_meter` is the quickest way).
 
 #### Notes
 
-- The cards use standard Home Assistant markdown + Jinja templating, so they
-  work on any meter without custom frontend code beyond the three cards above.
-- The daily/hourly figures are computed from the integration's in-memory
-  readings buffer, so the bar charts fill in as history accumulates after
-  install (and after a "Fetch more history" run).
-- For native long-term history/statistics cards, point them at the
-  **`Kallvatten (Energi-dashboard)`** statistic sensor — it carries the full
-  backfilled history and is also the Energy Dashboard source.
+- This card set deliberately avoids HTML-in-markdown + card-mod shadow styling
+  (which silently renders blank on recent Home Assistant versions). Mushroom
+  and ApexCharts render reliably without it.
+- The bar colour defaults to water-blue (`#1084cf`); change the `color:` under
+  each chart series to taste.
+- The charts fill in as history accumulates after install (and after a
+  "Fetch more history" run). For heat/electricity meters, point the chart
+  series at the matching "(Energy Dashboard)" statistic sensor instead.
 
 ## Troubleshooting
 
