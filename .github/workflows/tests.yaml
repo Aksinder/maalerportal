@@ -22,11 +22,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install pytest
+      - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest
+          pip install -r requirements_test.txt
 
-      - name: Run unit tests
+      - name: Run unit tests (dependency-free)
         run: |
           pytest tests_unit/ -v
+
+      - name: Run integration tests (Home Assistant harness)
+        run: |
+          pytest tests/ -v
