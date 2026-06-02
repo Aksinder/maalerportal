@@ -29,6 +29,7 @@ find_new_installations = _module.find_new_installations
 reconcile_installations = _module.reconcile_installations
 is_meter_swap = _module.is_meter_swap
 should_seed_previous_from_recorder = _module.should_seed_previous_from_recorder
+is_safe_installation_id = _module.is_safe_installation_id
 
 
 def _make_inst(
@@ -377,3 +378,28 @@ def test_is_meter_swap_false_when_no_previous_values():
         swap_pending=True,
         drop_threshold=_THRESHOLD,
     ) is False
+
+
+# ---------------------------------------------------------------------------
+# is_safe_installation_id (path-traversal guard for the CSV log path)
+# ---------------------------------------------------------------------------
+
+
+def test_is_safe_installation_id_accepts_uuid_and_tokens():
+    assert is_safe_installation_id("a06d9462-49ab-428b-97cd-91391a68230b") is True
+    assert is_safe_installation_id("inst_123") is True
+    assert is_safe_installation_id("ABCdef-0123456789") is True
+
+
+def test_is_safe_installation_id_rejects_path_traversal_and_absolute():
+    assert is_safe_installation_id("../../../config/automations") is False
+    assert is_safe_installation_id("/etc/passwd") is False
+    assert is_safe_installation_id("a/b") is False
+    assert is_safe_installation_id("foo.bar") is False  # dot would allow .csv tricks
+
+
+def test_is_safe_installation_id_rejects_empty_oversized_and_nonstr():
+    assert is_safe_installation_id("") is False
+    assert is_safe_installation_id("x" * 65) is False
+    assert is_safe_installation_id(None) is False
+    assert is_safe_installation_id(12345) is False

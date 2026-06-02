@@ -26,6 +26,7 @@ from .readings_log import ReadingsLog
 from .reconcile import (
     TRACKED_INSTALLATION_FIELDS,
     find_new_installations,
+    is_safe_installation_id,
     reconcile_installations,
 )
 from .stale_monitor import (
@@ -461,6 +462,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     for installation in installations:
         installation_id = installation["installationId"]
+
+        if not is_safe_installation_id(installation_id):
+            # Defense in depth: an installation id is used to build the
+            # per-installation CSV log path. Skip anything that isn't a plain
+            # UUID-style token so a malformed/hostile id can't reach the
+            # filesystem (the rest of the entry still loads).
+            _LOGGER.warning(
+                "Skipping installation with unsafe id: %r", installation_id
+            )
+            continue
 
         if installation_id in missing_ids:
             # Skip coordinator setup for installations that no longer exist

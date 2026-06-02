@@ -31,6 +31,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .const import RECENT_BUFFER_SIZE
+from .reconcile import is_safe_installation_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,8 +60,22 @@ class ReadingsLog:
     """Per-installation CSV append-only log."""
 
     def __init__(self, hass: HomeAssistant, installation_id: str) -> None:
+        # installation_id is API-supplied and goes straight into a file path.
+        # Reject anything that isn't a plain UUID-style token so a malicious or
+        # compromised upstream can't traverse out of the log directory or write
+        # to an absolute path.
+        if not is_safe_installation_id(installation_id):
+            raise ValueError(
+                f"Refusing unsafe installation_id for log path: {installation_id!r}"
+            )
         self._dir = Path(hass.config.path(_SUBDIR))
         self._path = self._dir / f"{installation_id}.csv"
+        # Defense in depth: ensure the resolved path stays inside the log dir.
+        if self._path.resolve().parent != self._dir.resolve():
+            raise ValueError(
+                f"Refusing out-of-directory log path for installation "
+                f"{installation_id!r}"
+            )
         self._known: set[tuple[str, str]] = set()
         # Last N rows in memory — populated from the CSV tail at load
         # and updated as new rows are written. Sorted oldest-first.

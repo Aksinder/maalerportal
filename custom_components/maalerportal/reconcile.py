@@ -5,7 +5,15 @@ tested in isolation.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# Installation IDs from the API are UUIDs. They are used to build the
+# per-installation CSV log path (``<config>/maalerportal/<id>.csv``), so an
+# id must never contain path separators or traversal sequences. Accept only a
+# conservative charset and bounded length; anything else is rejected before it
+# can reach a filesystem path.
+_SAFE_INSTALLATION_ID = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
 
 # Fields on an installation we want to keep in sync with the API.
 TRACKED_INSTALLATION_FIELDS = (
@@ -77,6 +85,20 @@ def reconcile_installations(
         merged.append(updated)
 
     return merged, missing_ids, serial_changes, changed
+
+
+def is_safe_installation_id(installation_id: Any) -> bool:
+    """Whether an installation id is safe to use in a filesystem path.
+
+    Guards the per-installation CSV log path against path traversal /
+    absolute-path injection from a malicious or compromised upstream API
+    response. Only a bounded alphanumeric/``_``/``-`` charset is allowed
+    (UUIDs qualify); anything with separators, dots, or empty/oversized
+    values is rejected.
+    """
+    return isinstance(installation_id, str) and bool(
+        _SAFE_INSTALLATION_ID.match(installation_id)
+    )
 
 
 def find_new_installations(
