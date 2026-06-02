@@ -226,8 +226,8 @@ The integration creates the following sensors for each installation:
 
 | Sensor | Type | Purpose |
 |---|---|---|
-| **Vattenmätaravläsning** | sensor (m³, total_increasing) | Current cumulative meter reading. Use this in Energy Dashboard, history-graph, statistics-graph cards. |
-| **Kallvatten (Energi-dashboard)** | sensor (m³, total_increasing, hidden by default) | Stats-only entity used as a backfill target. Hidden — Vattenmätaravläsning is the primary user-facing entity. |
+| **Vattenmätaravläsning** | sensor (m³, total_increasing) | Current cumulative meter reading with a live state. The primary user-facing entity — use it in history-graph, glance and the app-style cards. |
+| **Kallvatten (Energi-dashboard)** | sensor (m³, total_increasing, hidden by default) | Statistics-only entity carrying the full backfilled history. **Use this as the Energy Dashboard water source** (see below). Its state shows `unknown` by design — it carries long-term statistics, not a live value, which is exactly what the Energy Dashboard consumes. |
 | **Aktuellt flöde** | sensor (L/h, measurement) | Instant flow rate from the meter (Flow1/Flow2 counters). 0 when no water is flowing. |
 | **Akustiskt brus** | sensor (Hz, measurement) | Live acoustic noise level reported by the meter. Used as input to the leak alarm. |
 | **Misstänkt vattenläcka** | binary_sensor (problem) | ON when noise has stayed at or above threshold for the configured duration. |
@@ -282,11 +282,21 @@ action:
 1. Go to **Settings** → **Dashboards** → **Energy**
 2. Scroll down to "Water consumption"
 3. Click **Add water source**
-4. Select **Vattenmätaravläsning** for the relevant address (the
-   primary sensor — both Vattenmätaravläsning and Kallvatten
-   (Energi-dashboard) work, but Vattenmätaravläsning has a live
-   state value)
+4. Select **Kallvatten (Energi-dashboard)** for the relevant address —
+   **not** Vattenmätaravläsning. The `Kallvatten (Energi-dashboard)`
+   sensor is the purpose-built statistics source: it carries the full
+   backfilled history and is import-only, so its cumulative series is
+   always continuous. Vattenmätaravläsning is recorded natively and is
+   meant for display/history cards; using it as the Energy source can
+   surface a one-time negative consumption bar if its native statistics
+   ever re-baseline (e.g. after an integration upgrade).
 5. Click **Save**
+
+> **Note:** the Energy Dashboard may show an "Entity unavailable" /
+> `unknown` warning for the `Kallvatten (Energi-dashboard)` sensor.
+> That is expected and harmless — the sensor has no live state by
+> design; the Energy Dashboard reads its long-term statistics, which
+> are complete and correct.
 
 ### Heat Meters
 1. Go to **Settings** → **Dashboards** → **Energy**
