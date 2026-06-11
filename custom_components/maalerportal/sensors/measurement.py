@@ -608,10 +608,14 @@ class MaalerportalLastReadingSensor(MaalerportalCoordinatorSensor):
                     n=self._recent_readings_count,
                 )
                 if recent:
+                    # Normalize value to float: rows loaded from the CSV tail
+                    # carry strings while live-appended rows carry floats.
+                    # Mixed types break template arithmetic in user cards
+                    # (e.g. computing deltas between rows).
                     attrs["recent_readings"] = [
                         {
                             **_localize_api_timestamp(r.get("timestamp")),
-                            "value": r.get("value"),
+                            "value": _numeric_value(r.get("value")),
                             "unit": r.get("unit"),
                         }
                         for r in recent
