@@ -32,7 +32,7 @@ from ..reconcile import (
     is_meter_swap,
     should_seed_previous_from_recorder,
 )
-from ..timeutils import parse_api_timestamp
+from ..timeutils import parse_api_timestamp, reading_sort_key
 from .base import MaalerportalPollingSensor
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,15 +45,22 @@ def _statistics_hour_start(timestamp: datetime, reading_type: str) -> datetime:
     vendor app. Home Assistant stores statistics in UTC, so do all hour
     bucketing in HA's configured local timezone first. That lets ZoneInfo
     handle CET/CEST transitions instead of relying on a fixed offset.
+
+    The "previous hour" step for counter readings is taken in UTC, *after*
+    the local floor. Doing it as wall-clock arithmetic on the local datetime
+    lands on a non-existent time when summer time starts (03:00 - 1h = 02:00)
+    and on the wrong side of the repeated hour when it ends, which collapsed
+    two readings onto one statistics hour and dropped one of them.
     """
     local_hour = dt_util.as_local(timestamp).replace(
         minute=0,
         second=0,
         microsecond=0,
     )
+    hour_start = local_hour.astimezone(timezone.utc)
     if reading_type != "consumption":
-        local_hour = local_hour - timedelta(hours=1)
-    return local_hour.astimezone(timezone.utc)
+        hour_start -= timedelta(hours=1)
+    return hour_start
 
 
 class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
@@ -709,7 +716,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 return
             
             # Sort by timestamp
-            counter_readings.sort(key=lambda x: x.get("timestamp", ""))
+            counter_readings.sort(key=reading_sort_key)
             
             # For counter-type meters without existing statistics:
             # Use the first reading as a baseline and subtract it from all values
@@ -1102,7 +1109,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 return 0
             
             # Sort by timestamp
-            counter_readings.sort(key=lambda x: x.get("timestamp", ""))
+            counter_readings.sort(key=reading_sort_key)
             
             # For counter-type: use the first reading as baseline
             counter_baseline = None

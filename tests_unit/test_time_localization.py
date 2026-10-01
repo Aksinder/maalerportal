@@ -4,8 +4,10 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 from zoneinfo import ZoneInfo
 
 
@@ -163,3 +165,63 @@ def test_dashboard_summary_builds_liter_deltas_by_local_day():
     assert summary["today_vs_yesterday_direction"] == "down"
     assert summary["daily_consumption"][-1]["liters"] == 59
     assert summary["daily_consumption"][-2]["liters"] == 100
+
+
+# Hourly UTC instants starting a few hours before each Swedish clock change.
+_FALL_BACK = datetime(2025, 10, 25, 20, 0, tzinfo=timezone.utc)  # 03:00 CEST -> 02:00 CET
+_SPRING = datetime(2026, 3, 28, 20, 0, tzinfo=timezone.utc)  # 02:00 CET -> 03:00 CEST
+
+
+@pytest.mark.parametrize("start", [_FALL_BACK, _SPRING], ids=["fall-back", "spring"])
+@pytest.mark.parametrize("reading_type", ["counter", "consumption"])
+def test_statistics_hour_start_is_one_to_one_across_dst(start, reading_type):
+    """Every hourly reading must map to its own, physically correct stats hour."""
+    history = _load_module(
+        "custom_components.maalerportal.sensors.history",
+        ROOT / "custom_components" / "maalerportal" / "sensors" / "history.py",
+    )
+    instants = [start + timedelta(hours=i) for i in range(10)]
+
+    buckets = [history._statistics_hour_start(i, reading_type) for i in instants]
+
+    shift = timedelta(hours=1) if reading_type == "counter" else timedelta(0)
+    assert buckets == [i - shift for i in instants]
+    assert len(set(buckets)) == len(buckets)
+
+
+def test_fall_back_hour_readings_are_processed_in_chronological_order():
+    """The repeated 02:00 hour must not be reordered by string sorting.
+
+    Plain string sort puts ``02:00+01:00`` (the later instant) before
+    ``02:00+02:00``; the loop then skips the earlier one as "not newer" and
+    that hour's consumption is lost.
+    """
+    history = _load_module(
+        "custom_components.maalerportal.sensors.history",
+        ROOT / "custom_components" / "maalerportal" / "sensors" / "history.py",
+    )
+    timeutils = sys.modules["custom_components.maalerportal.timeutils"]
+    stamps = [
+        "2025-10-26T03:00:00.000+01:00",
+        "2025-10-26T02:00:00.000+01:00",
+        "2025-10-26T01:00:00.000+02:00",
+        "2025-10-26T02:00:00.000+02:00",
+    ]
+    rows = [{"timestamp": ts, "value": 1.0} for ts in stamps]
+
+    ordered = sorted(rows, key=timeutils.reading_sort_key)
+    buckets = [
+        history._statistics_hour_start(
+            timeutils.parse_api_timestamp(r["timestamp"]), "consumption"
+        )
+        for r in ordered
+    ]
+
+    assert [r["timestamp"] for r in ordered] == [
+        "2025-10-26T01:00:00.000+02:00",
+        "2025-10-26T02:00:00.000+02:00",
+        "2025-10-26T02:00:00.000+01:00",
+        "2025-10-26T03:00:00.000+01:00",
+    ]
+    assert buckets == sorted(buckets)
+    assert len(set(buckets)) == 4  # none collapsed, none would be skipped

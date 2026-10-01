@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import DOMAIN
+from .timeutils import is_older_reading, parse_api_timestamp, reading_sort_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +54,13 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
         # when the cache is empty for a counter that needs it. Real
         # latestValues clear the cache as they arrive.
         self._fallback_values: dict[str, dict[str, Any]] = {}
+
+        # Newest reading we have *published* per counter (live or fallback):
+        # (latestTimestamp, numeric value). Used to refuse a fallback that is
+        # older than something already published — otherwise a transient
+        # null from /readings/latest would rewind the sensor to an older
+        # historical value and then jump forward again on the next poll.
+        self._high_water: dict[str, tuple[str, float]] = {}
 
         # Tracks (latestTimestamp, datetime_we_first_saw_it) per counter.
         # Used to compute report-lag — i.e. how long after the meter
@@ -136,6 +144,7 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
             else:
                 # Real reading came in — discard any stale fallback.
                 self._fallback_values.pop(counter_id, None)
+                self._note_published_reading(counter_id, counter)
 
         if needs_lookup:
             await self._refresh_fallback_from_history(needs_lookup)
@@ -144,10 +153,60 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
             counter_id = counter.get("meterCounterId")
             if counter.get("latestValue") is None and counter_id in self._fallback_values:
                 fb = self._fallback_values[counter_id]
+                live = self._high_water.get(counter_id)
+                if live is not None and is_older_reading(fb["timestamp"], live[0]):
+                    # Leaving latestValue as None makes every sensor keep its
+                    # current state (see _parse_counter_value) instead of
+                    # rewinding to an older reading.
+                    _LOGGER.debug(
+                        "Ignoring stale fallback for counter %s: %s @ %s is older "
+                        "than live reading @ %s",
+                        counter_id,
+                        fb["value"],
+                        fb["timestamp"],
+                        live[0],
+                    )
+                    continue
                 counter["latestValue"] = fb["value"]
                 counter["latestTimestamp"] = fb["timestamp"]
                 # Marker so downstream consumers can tell live from filled.
                 counter["isFallback"] = True
+                self._note_published_reading(counter_id, counter)
+
+    def _note_published_reading(self, counter_id: str, counter: dict[str, Any]) -> None:
+        """Remember the newest published reading and flag a genuine regression.
+
+        A value that is *lower* than the previous one but carries a
+        *newer* timestamp is not stale data — it is a real counter regression
+        (meter swap, utility correction, rollover). It is passed through
+        untouched (the statistics sensor decides whether it is a swap), but we
+        log it once so the cause is visible in the HA log.
+        """
+        ts = counter.get("latestTimestamp")
+        try:
+            value = float(str(counter.get("latestValue")).replace(",", "."))
+        except (TypeError, ValueError):
+            return
+        if not ts or parse_api_timestamp(ts) is None:
+            return
+        previous = self._high_water.get(counter_id)
+        if previous is not None:
+            prev_ts, prev_value = previous
+            if is_older_reading(ts, prev_ts):
+                # Something older than we already published. Never lower the
+                # high-water mark.
+                return
+            if value < prev_value and ts != prev_ts:
+                _LOGGER.warning(
+                    "Counter %s on installation %s went backwards: %s @ %s -> %s @ %s",
+                    counter_id,
+                    self.installation_id,
+                    prev_value,
+                    prev_ts,
+                    value,
+                    ts,
+                )
+        self._high_water[counter_id] = (ts, value)
 
     def _update_first_observed(self, counters: list[dict[str, Any]]) -> None:
         """Update the first-observed-at marker for each counter.
@@ -256,9 +315,10 @@ class MaalerportalCoordinator(DataUpdateCoordinator):
             ]
             if not candidates:
                 continue
-            # Pick the most recent — timestamp strings sort lexicographically
-            # because they are ISO-8601 with consistent timezone offset.
-            candidates.sort(key=lambda r: r["timestamp"], reverse=True)
+            # Pick the most recent. Compare parsed instants, not strings: the
+            # historical endpoint answers in local time with an offset, which
+            # does not sort chronologically across a DST change.
+            candidates.sort(key=reading_sort_key, reverse=True)
             latest = candidates[0]
             self._fallback_values[counter_id] = {
                 "value": latest["value"],
