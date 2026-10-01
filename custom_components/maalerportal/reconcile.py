@@ -183,3 +183,111 @@ def compute_swap_offset(
         Second reading 0.446 → displayed = 0.446 + 1973.614 = 1974.060 ✓
     """
     return last_displayed_sum - first_new_raw_value
+
+
+# ---------------------------------------------------------------------------
+# Late-arriving hours
+#
+# The utility sometimes delivers an hour *after* a newer hour has already been
+# imported. The periodic statistics update re-fetches a 7-day window, so the
+# late hour is in the response, but a "newer than the last import" cursor
+# discards it. The helpers below decide what to import for such an hour.
+# ---------------------------------------------------------------------------
+
+
+def rebase_consumption_rows(
+    stored: list[tuple[Any, float | None, float | None]],
+    late: dict[Any, float],
+) -> tuple[list[tuple[Any, float, float]], float]:
+    """Re-base cumulative sums after hours that arrived late.
+
+    Consumption meters store one row per hour with ``state`` = that hour's
+    interval and ``sum`` = running total. Inserting an earlier hour changes
+    the ``sum`` of every row after it, so the rows from the earliest late hour
+    onwards are recomputed.
+
+    Args:
+        stored: ``(start, state, sum)`` rows already in the recorder, ordered
+            by ``start``. Rows with a ``None`` sum are ignored.
+        late: ``{start: interval}`` for hours that are *not* stored yet but are
+            older than the newest stored row. Starts compare with ``stored``'s.
+
+    Returns:
+        ``(rows, delta)``. ``rows`` are ``(start, interval, new_sum)`` for every
+        late hour and every stored row whose sum changed, ordered by ``start``.
+        ``delta`` is how much the newest total grew; add it to any cached
+        running total. Both are empty/zero if ``late`` is empty.
+
+    Only positive intervals add to the running total, matching the importer.
+    """
+    if not late:
+        return [], 0.0
+
+    rows = [(s, st, sm) for s, st, sm in stored if sm is not None]
+    earliest = min(late)
+
+    before = [r for r in rows if r[0] < earliest]
+    after = [r for r in rows if r[0] > earliest]
+    if before:
+        base = before[-1][2]
+    elif after:
+        # Nothing stored before the late hour in the window: derive the total
+        # that preceded the first stored row from that row itself.
+        first_state = after[0][1] or 0.0
+        base = after[0][2] - max(first_state, 0.0)
+    else:
+        base = 0.0
+
+    items: dict[Any, tuple[float, float | None]] = {s: (v, None) for s, v in late.items()}
+    for start, state, old_sum in after:
+        items[start] = (state if state is not None else 0.0, old_sum)
+
+    running = base
+    out: list[tuple[Any, float, float]] = []
+    for start in sorted(items):
+        interval, old_sum = items[start]
+        if interval > 0:
+            running += interval
+        if old_sum is None or abs(running - old_sum) > 1e-9:
+            out.append((start, interval, running))
+
+    newest_old = rows[-1][2] if rows else 0.0
+    return out, running - newest_old
+
+
+def late_counter_row_sum(
+    value: float,
+    prev: tuple[float | None, float | None] | None,
+    next_: tuple[float | None, float | None] | None,
+) -> float | None:
+    """Sum to store for a cumulative-counter reading that arrived late.
+
+    Counter rows carry an absolute raw ``state`` and a ``sum`` that is the raw
+    value plus a constant (the meter-swap offset, or minus the first-install
+    baseline). A late hour can therefore be added without touching other rows:
+    take the constant from its stored neighbours and apply it.
+
+    Args:
+        value: the late raw reading.
+        prev / next_: ``(state, sum)`` of the nearest stored rows before and
+            after the late hour, or ``None`` if there is none in the window.
+
+    Returns ``None`` -- meaning "do not add this row" -- when the reading does
+    not fit: it is not monotone against a neighbour (e.g. a pre-swap reading
+    next to a post-swap row), the neighbours disagree on the constant (a swap
+    boundary), or there is no neighbour to anchor the constant on.
+    """
+    offsets: list[float] = []
+    if prev is not None and prev[0] is not None and prev[1] is not None:
+        if value < prev[0]:
+            return None
+        offsets.append(prev[1] - prev[0])
+    if next_ is not None and next_[0] is not None and next_[1] is not None:
+        if value > next_[0]:
+            return None
+        offsets.append(next_[1] - next_[0])
+    if not offsets:
+        return None
+    if max(offsets) - min(offsets) > 1e-6:
+        return None
+    return value + offsets[0]

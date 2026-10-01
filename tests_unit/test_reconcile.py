@@ -28,6 +28,8 @@ compute_swap_offset = _module.compute_swap_offset
 find_new_installations = _module.find_new_installations
 reconcile_installations = _module.reconcile_installations
 is_meter_swap = _module.is_meter_swap
+rebase_consumption_rows = _module.rebase_consumption_rows
+late_counter_row_sum = _module.late_counter_row_sum
 should_seed_previous_from_recorder = _module.should_seed_previous_from_recorder
 is_safe_installation_id = _module.is_safe_installation_id
 
@@ -403,3 +405,120 @@ def test_is_safe_installation_id_rejects_empty_oversized_and_nonstr():
     assert is_safe_installation_id("x" * 65) is False
     assert is_safe_installation_id(None) is False
     assert is_safe_installation_id(12345) is False
+
+
+# --- late-arriving hours ----------------------------------------------------
+
+
+def _stored(hours, interval=1.0, start_sum=0.0):
+    """Stored rows: one interval per hour, running sums from ``start_sum``."""
+    rows, running = [], start_sum
+    for h in hours:
+        running += interval
+        rows.append((h, interval, running))
+    return rows
+
+
+def test_rebase_inserts_late_hour_and_shifts_later_sums():
+    stored = _stored([0, 1, 2, 4, 5])  # sums 1,2,3,4,5 -- hour 3 missing
+
+    rows, delta = rebase_consumption_rows(stored, {3: 1.0})
+
+    assert rows == [(3, 1.0, 4.0), (4, 1.0, 5.0), (5, 1.0, 6.0)]
+    assert delta == 1.0
+
+
+def test_rebase_does_not_touch_rows_before_the_late_hour():
+    stored = _stored([0, 1, 2, 4])
+
+    rows, _ = rebase_consumption_rows(stored, {3: 0.5})
+
+    assert [r[0] for r in rows] == [3, 4]
+
+
+def test_rebase_handles_several_late_hours():
+    stored = _stored([0, 3, 6])  # sums 1,2,3
+
+    rows, delta = rebase_consumption_rows(stored, {1: 2.0, 4: 3.0})
+
+    assert rows == [(1, 2.0, 3.0), (3, 1.0, 4.0), (4, 3.0, 7.0), (6, 1.0, 8.0)]
+    assert delta == 5.0
+
+
+def test_rebase_late_hour_before_every_stored_row_derives_the_base():
+    # Window starts at hour 2; the stored total before it was 10.
+    stored = [(2, 1.0, 11.0), (3, 1.0, 12.0)]
+
+    rows, delta = rebase_consumption_rows(stored, {1: 1.0})
+
+    assert rows == [(1, 1.0, 11.0), (2, 1.0, 12.0), (3, 1.0, 13.0)]
+    assert delta == 1.0
+
+
+def test_rebase_zero_or_negative_interval_is_stored_but_adds_nothing():
+    stored = _stored([0, 2])  # sums 1,2
+
+    rows, delta = rebase_consumption_rows(stored, {1: -0.4})
+
+    assert rows == [(1, -0.4, 1.0)]  # the later row's sum is unchanged -> omitted
+    assert delta == 0.0
+
+
+def test_rebase_without_late_hours_is_a_noop():
+    assert rebase_consumption_rows(_stored([0, 1, 2]), {}) == ([], 0.0)
+
+
+def test_rebase_ignores_stored_rows_without_a_sum():
+    stored = [(0, 1.0, 1.0), (1, 1.0, None), (3, 1.0, 2.0)]
+
+    rows, delta = rebase_consumption_rows(stored, {2: 1.0})
+
+    assert rows == [(2, 1.0, 2.0), (3, 1.0, 3.0)]
+    assert delta == 1.0
+
+
+def test_rebase_is_idempotent_once_applied():
+    stored = _stored([0, 1, 2, 4, 5])
+    rows, _ = rebase_consumption_rows(stored, {3: 1.0})
+    applied = {r[0]: r for r in rows}
+    merged = sorted(
+        [r for r in stored if r[0] not in applied] + list(applied.values())
+    )
+    # Feeding the merged result back with the same late hour finds nothing new.
+    assert rebase_consumption_rows(merged, {}) == ([], 0.0)
+
+
+def test_late_counter_row_takes_its_offset_from_the_neighbours():
+    # Neighbours: raw 5.0 / 6.0 stored with sum = raw + 100.
+    assert late_counter_row_sum(5.5, (5.0, 105.0), (6.0, 106.0)) == 105.5
+
+
+def test_late_counter_row_follows_a_first_install_baseline_too():
+    # sum = raw - baseline(5.0), i.e. offset -5.0
+    assert late_counter_row_sum(5.5, (5.0, 0.0), (6.0, 1.0)) == 0.5
+
+
+def test_late_counter_row_with_equal_raw_value_is_accepted():
+    assert late_counter_row_sum(5.0, (5.0, 5.0), (5.0, 5.0)) == 5.0
+
+
+def test_late_counter_row_rejected_when_it_breaks_monotonicity():
+    # Pre-swap reading (large) next to a post-swap neighbour (small).
+    assert late_counter_row_sum(1990.0, (1973.9, 1973.9), (0.4, 1974.3)) is None
+    assert late_counter_row_sum(4.0, (5.0, 5.0), (6.0, 6.0)) is None
+
+
+def test_late_counter_row_rejected_when_neighbours_disagree_on_offset():
+    # A swap boundary: left neighbour offset 0, right neighbour offset 1973.6.
+    assert late_counter_row_sum(1.0, (0.5, 0.5), (2.0, 1975.6)) is None
+
+
+def test_late_counter_row_uses_the_single_neighbour_that_exists():
+    assert late_counter_row_sum(5.0, None, (6.0, 106.0)) == 105.0
+    assert late_counter_row_sum(5.0, (4.0, 104.0), None) == 105.0
+    assert late_counter_row_sum(7.0, None, (6.0, 106.0)) is None
+
+
+def test_late_counter_row_without_any_anchor_is_not_added():
+    assert late_counter_row_sum(5.0, None, None) is None
+    assert late_counter_row_sum(5.0, (None, None), (None, None)) is None

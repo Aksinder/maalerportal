@@ -30,6 +30,8 @@ from ..coordinator import MaalerportalCoordinator
 from ..reconcile import (
     compute_swap_offset,
     is_meter_swap,
+    late_counter_row_sum,
+    rebase_consumption_rows,
     should_seed_previous_from_recorder,
 )
 from ..timeutils import parse_api_timestamp, reading_sort_key
@@ -61,6 +63,26 @@ def _statistics_hour_start(timestamp: datetime, reading_type: str) -> datetime:
     if reading_type != "consumption":
         hour_start -= timedelta(hours=1)
     return hour_start
+
+
+def _reading_float(value: Any) -> Optional[float]:
+    """Parse an API reading value (number or string) to ``float``; ``None`` if not numeric."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            return float(re.sub(r"[^\d.-]", "", value.strip()))
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stat_row_start(row: dict[str, Any]) -> datetime:
+    """UTC start of a recorder statistics row (float epoch or datetime)."""
+    start = row["start"]
+    if isinstance(start, (int, float)):
+        return datetime.fromtimestamp(start, tz=timezone.utc)
+    return start if start.tzinfo else start.replace(tzinfo=timezone.utc)
 
 
 class MaalerportalConsumptionSensor(MaalerportalPollingSensor, RestoreEntity):
@@ -800,6 +822,14 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                 except Exception as err:
                     _LOGGER.debug("Could not load existing statistics: %s", err)
             
+            # Hours the utility delivered *after* a newer hour was stored are in
+            # this response but older than the newest stored row, so the cursor
+            # below would discard them. Import them first (and re-base the
+            # running total for consumption meters). A full fetch rebuilds
+            # everything from scratch and does not need this.
+            if not force_full_fetch and has_existing_stats:
+                await self._import_late_hours(counter_readings, start_date)
+
             # Build statistics data
             statistics: list[StatisticData] = []
             cumulative_sum = self._cumulative_sum
@@ -980,6 +1010,131 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             _LOGGER.error("Connection error fetching statistics data: %s", err)
         except Exception as err:
             _LOGGER.exception("Unexpected error updating statistics: %s", err)
+
+    async def _import_late_hours(
+        self, counter_readings: list[dict[str, Any]], window_start: datetime
+    ) -> None:
+        """Import hours that arrived after a newer hour had already been stored.
+
+        Compares the fetched window with what the recorder already holds for the
+        same window. A reading whose hour is *missing* from the recorder but
+        *older* than the newest stored hour is a late arrival:
+
+        * consumption meters: the running total of every row after it changes,
+          so the affected rows are re-based (see ``rebase_consumption_rows``);
+        * counter meters: rows hold absolute values, so the late row is simply
+          added, with the same offset as its neighbours, if it fits between
+          them (see ``late_counter_row_sum``).
+
+        Hours newer than the newest stored one are left to the normal import.
+        """
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.models import (
+            StatisticData,
+            StatisticMeanType,
+            StatisticMetaData,
+        )
+        from homeassistant.components.recorder.statistics import (
+            async_import_statistics,
+            statistics_during_period,
+        )
+
+        if not self._statistic_id:
+            return
+
+        # One hour of margin so a partial first hour of the window is never
+        # mistaken for a missing one.
+        cutoff = window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        result = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            cutoff,
+            None,
+            {self._statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        stored = sorted(
+            (
+                (_stat_row_start(row), row.get("state"), row.get("sum"))
+                for row in (result.get(self._statistic_id) or [])
+            ),
+            key=lambda r: r[0],
+        )
+        if not stored:
+            return
+        stored_starts = {row[0] for row in stored}
+        newest_stored = stored[-1][0]
+
+        late: dict[datetime, float] = {}
+        for reading in counter_readings:
+            timestamp = parse_api_timestamp(reading.get("timestamp"))
+            value = _reading_float(reading.get("value"))
+            if timestamp is None or value is None:
+                continue
+            start = _statistics_hour_start(timestamp, self._reading_type)
+            if start < cutoff or start >= newest_stored or start in stored_starts:
+                continue
+            late[start] = value
+        if not late:
+            return
+
+        statistics: list[StatisticData] = []
+        if self._reading_type == "consumption":
+            rows, delta = rebase_consumption_rows(stored, late)
+            statistics = [
+                StatisticData(start=start, state=interval, sum=total)
+                for start, interval, total in rows
+            ]
+            self._cumulative_sum += delta
+        else:
+            for start in sorted(late):
+                prev = next((r for r in reversed(stored) if r[0] < start), None)
+                following = next((r for r in stored if r[0] > start), None)
+                total = late_counter_row_sum(
+                    late[start],
+                    (prev[1], prev[2]) if prev else None,
+                    (following[1], following[2]) if following else None,
+                )
+                if total is None:
+                    _LOGGER.debug(
+                        "Not adding late reading for %s at %s: %s does not fit "
+                        "between its neighbours",
+                        self._statistic_id,
+                        start.isoformat(),
+                        late[start],
+                    )
+                    continue
+                statistics.append(StatisticData(start=start, state=late[start], sum=total))
+
+        if not statistics:
+            return
+
+        async_import_statistics(
+            self.hass,
+            StatisticMetaData(
+                has_mean=False,
+                has_sum=True,
+                mean_type=StatisticMeanType.NONE,
+                name=self.name or f"{self._base_device_name}",
+                source="recorder",
+                statistic_id=self._statistic_id,
+                unit_of_measurement=self._stat_unit,
+                unit_class=self._unit_class,
+            ),
+            statistics,
+        )
+        _LOGGER.info(
+            "Imported %d late-arriving hour(s) for %s (%s .. %s)%s",
+            len(late),
+            self._statistic_id,
+            min(late).isoformat(),
+            max(late).isoformat(),
+            f", re-based {len(statistics)} rows" if self._reading_type == "consumption" else "",
+        )
+        if self._reading_type == "consumption":
+            self.async_write_ha_state()
 
     async def _fetch_historical_chunked(
         self,
