@@ -740,25 +740,6 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             # Sort by timestamp
             counter_readings.sort(key=reading_sort_key)
             
-            # For counter-type meters without existing statistics:
-            # Use the first reading as a baseline and subtract it from all values
-            # This prevents the Energy Dashboard from showing massive consumption (0 to current meter value)
-            # Instead, consumption starts from 0 and only shows the delta from the first reading
-            counter_baseline = None
-            if self._reading_type != "consumption" and not has_existing_stats:
-                # Get the first reading value as baseline
-                if counter_readings:
-                    first_value = counter_readings[0].get("value")
-                    if first_value is not None:
-                        if isinstance(first_value, str):
-                            counter_baseline = float(re.sub(r'[^\d.-]', '', first_value.strip()))
-                        else:
-                            counter_baseline = float(first_value)
-                        _LOGGER.debug(
-                            "Using first counter reading as baseline: %s (will subtract from all values)",
-                            counter_baseline
-                        )
-
             # Meter-swap offset bookkeeping (counter-type only).
             # `prev_raw_value` and `prev_displayed_sum` track the last seen
             # raw API value and last persisted displayed sum so we can spot
@@ -932,15 +913,13 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                                     self.hass, entry_id, self._installation_id
                                 )
 
-                        # Calculate displayed sum:
-                        #  - First-time install: subtract baseline (legacy
-                        #    behaviour, makes Energy Dashboard start near 0)
-                        #  - Otherwise: apply meter-swap offset (0 if no
-                        #    swap has happened)
-                        if counter_baseline is not None:
-                            displayed_sum = value - counter_baseline
-                        else:
-                            displayed_sum = value + self._meter_offset
+                        # Displayed sum is always raw value + meter-swap offset
+                        # (0 if no swap has happened). Every row, on first
+                        # install and on later polls alike, uses the same
+                        # constant, so the sum series never steps between
+                        # polls and late-arriving hours can take their offset
+                        # from a stored neighbour (see late_counter_row_sum).
+                        displayed_sum = value + self._meter_offset
 
                         statistics.append(
                             StatisticData(
@@ -1215,6 +1194,121 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
 
         return all_readings
 
+    async def _offset_of_next_stored_row(
+        self, counter_readings: list[dict[str, Any]]
+    ) -> float:
+        """``sum - state`` of the first stored row after these readings.
+
+        Falls back to the in-memory meter offset when nothing is stored after
+        them (or the recorder holds no usable row).
+        """
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import statistics_during_period
+
+        last_ts = parse_api_timestamp(counter_readings[-1].get("timestamp"))
+        if last_ts is None:
+            return self._meter_offset
+        last_start = _statistics_hour_start(last_ts, self._reading_type)
+        result = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            last_start,
+            None,
+            {self._statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        rows = sorted(
+            (
+                (_stat_row_start(row), row.get("state"), row.get("sum"))
+                for row in (result.get(self._statistic_id) or [])
+            ),
+            key=lambda r: r[0],
+        )
+        for start, state, total in rows:
+            if start > last_start and state is not None and total is not None:
+                return float(total) - float(state)
+        return self._meter_offset
+
+    async def _import_older_consumption(self, intervals: dict[datetime, float]) -> int:
+        """Insert older consumption hours and shift the totals of the rows after them.
+
+        Each row's ``sum`` is the running total of every hour before it, so
+        hours added *before* stored rows raise the ``sum`` of all of those rows
+        (see ``rebase_consumption_rows``). Starting the batch's own total at 0
+        instead would drop the series at the seam with the stored rows.
+
+        Returns the number of hours that were not stored yet and were added.
+        """
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.models import (
+            StatisticData,
+            StatisticMeanType,
+            StatisticMetaData,
+        )
+        from homeassistant.components.recorder.statistics import (
+            async_import_statistics,
+            statistics_during_period,
+        )
+
+        if not intervals:
+            return 0
+
+        result = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            min(intervals),
+            None,
+            {self._statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        stored = sorted(
+            (
+                (_stat_row_start(row), row.get("state"), row.get("sum"))
+                for row in (result.get(self._statistic_id) or [])
+            ),
+            key=lambda r: r[0],
+        )
+        stored_starts = {row[0] for row in stored}
+        new_hours = {s: v for s, v in intervals.items() if s not in stored_starts}
+        if not new_hours:
+            _LOGGER.info("No new older statistics to insert for %s", self._statistic_id)
+            return 0
+
+        rows, delta = rebase_consumption_rows(stored, new_hours)
+        statistics = [
+            StatisticData(start=start, state=interval, sum=total)
+            for start, interval, total in rows
+        ]
+        async_import_statistics(
+            self.hass,
+            StatisticMetaData(
+                has_mean=False,
+                has_sum=True,
+                mean_type=StatisticMeanType.NONE,
+                name=self.name or f"{self._base_device_name}",
+                source="recorder",
+                statistic_id=self._statistic_id,
+                unit_of_measurement=self._stat_unit,
+                unit_class=self._unit_class,
+            ),
+            statistics,
+        )
+        self._cumulative_sum += delta
+        _LOGGER.info(
+            "Inserted %d older statistics records for %s (from %s to %s), "
+            "re-based %d rows",
+            len(new_hours),
+            self._statistic_id,
+            min(new_hours).isoformat(),
+            max(new_hours).isoformat(),
+            len(statistics) - len(new_hours),
+        )
+        return len(new_hours)
+
     async def async_fetch_older_history(self, from_days_ago: int, to_days_ago: int) -> int:
         """Fetch older historical data for a specific date range and insert into statistics."""
         if not self._statistic_id:
@@ -1266,33 +1360,32 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
             # Sort by timestamp
             counter_readings.sort(key=reading_sort_key)
             
-            # For counter-type: use the first reading as baseline
-            counter_baseline = None
+            # For counter-type: rows are raw value + a constant offset (see
+            # _async_update_statistics). Older rows must carry the same constant
+            # as the stored row that follows them, or the sum would step at the
+            # seam and the Energy dashboard would read it as consumption.
+            counter_offset = self._meter_offset
             if self._reading_type != "consumption":
-                first_value = counter_readings[0].get("value")
-                if first_value is not None:
-                    if isinstance(first_value, str):
-                        counter_baseline = float(re.sub(r'[^\d.-]', '', first_value.strip()))
-                    else:
-                        counter_baseline = float(first_value)
-            
-            # For consumption type, start cumulative sum at 0 for this batch
-            cumulative_sum = 0.0
-            
+                counter_offset = await self._offset_of_next_stored_row(counter_readings)
+
+            # Consumption: collect the hourly intervals; the running totals are
+            # worked out below against what the recorder already holds.
+            older_intervals: dict[datetime, float] = {}
+
             # Build statistics data
             statistics: list[StatisticData] = []
-            
+
             for reading in counter_readings:
                 try:
                     timestamp_str = reading.get("timestamp")
                     if not timestamp_str:
                         continue
-                    
+
                     timestamp = parse_api_timestamp(timestamp_str)
                     if timestamp is None:
                         continue
                     timestamp = _statistics_hour_start(timestamp, self._reading_type)
-                    
+
                     if self._reading_type == "consumption":
                         interval_value = reading.get("value")
                         if interval_value is None:
@@ -1301,15 +1394,7 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                             interval_value = float(re.sub(r'[^\d.-]', '', interval_value.strip()))
                         else:
                             interval_value = float(interval_value)
-                        if interval_value > 0:
-                            cumulative_sum += interval_value
-                        statistics.append(
-                            StatisticData(
-                                start=timestamp,
-                                state=interval_value,
-                                sum=cumulative_sum,
-                            )
-                        )
+                        older_intervals[timestamp] = interval_value
                     else:
                         value = reading.get("value")
                         if value is None:
@@ -1318,18 +1403,20 @@ class MaalerportalStatisticSensor(MaalerportalPollingSensor, RestoreEntity):
                             value = float(re.sub(r'[^\d.-]', '', value.strip()))
                         else:
                             value = float(value)
-                        relative_sum = value - counter_baseline if counter_baseline is not None else value
                         statistics.append(
                             StatisticData(
                                 start=timestamp,
                                 state=value,
-                                sum=relative_sum,
+                                sum=value + counter_offset,
                             )
                         )
                 except (ValueError, TypeError) as err:
                     _LOGGER.debug("Error parsing older reading: %s - %s", reading, err)
                     continue
             
+            if self._reading_type == "consumption":
+                return await self._import_older_consumption(older_intervals)
+
             if not statistics:
                 _LOGGER.info("No new older statistics to insert for counter %s", counter_id)
                 return 0
